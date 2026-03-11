@@ -1,0 +1,27 @@
+{
+  "id": "d2_m3",
+  "dungeon_id": "dungeon2",
+  "order": 3,
+  "title": "The Treasury",
+  "topic": "groupBy() + sum() + avg()",
+  "story": "The forest treasurer needs a full accounting per department: total salary paid out and the average wage. Round the average to 2 decimal places.",
+  "problem": "Group by `department`. Compute `total_salary` (sum of salary) and `avg_salary` (average salary, rounded to 2 decimal places). Order by `department` ascending.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>.agg()</code> can take multiple aggregations at once. <code>F.sum(col)</code> adds up all values in a group. <code>F.avg(col)</code> computes the mean. <code>F.round(expr, n)</code> rounds to <code>n</code> decimal places. Chain them together with commas inside <code>agg()</code>.",
+    "example_code": "# Example: total and average price per category\nproducts_df = spark.createDataFrame(\n    [('fruit', 1.5), ('fruit', 2.0), ('veg', 0.8), ('veg', 1.2)],\n    ['category', 'price']\n)\n\nresult = products_df.groupBy('category').agg(\n    F.sum('price').alias('total_price'),\n    F.round(F.avg('price'), 2).alias('avg_price')\n)\n# fruit: total=3.5, avg=1.75\n# veg:   total=2.0, avg=1.0",
+    "output_note": "Wrap F.avg inside F.round(F.avg(...), 2) to control decimal places in the output."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: group by department\n# Compute total_salary (sum) and avg_salary (avg, rounded to 2 dp)\n# Order by department ascending\nresult = (\n    df.groupBy('department')\n    .agg(\n        ___,\n        ___\n    )\n    .orderBy(___)\n)",
+
+  "expected": [
+    {"department": "Engineering", "total_salary": 575000, "avg_salary": 115000.0},
+    {"department": "Finance",     "total_salary": 285000, "avg_salary": 95000.0},
+    {"department": "HR",          "total_salary": 157000, "avg_salary": 52333.33},
+    {"department": "Marketing",   "total_salary": 272000, "avg_salary": 68000.0}
+  ],
+  "hints": [
+    "Use F.sum('salary').alias('total_salary') and F.avg('salary').alias('avg_salary') inside .agg()",
+    "Wrap F.avg with F.round(..., 2) to round to 2 decimal places."
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "d2_m4",
+  "dungeon_id": "dungeon2",
+  "order": 4,
+  "title": "The Score Tally",
+  "topic": "Column arithmetic — sum multiple columns",
+  "story": "An exam record stone holds five subject scores per student. The dungeon master wants the total score for each student added as a new column.",
+  "problem": "Create a DataFrame `result` from the data below with a new column `total` that sums telugu + english + maths + science + social.",
+  "dataset": null,
+  "concept": {
+    "explanation": "You can add columns together with the <code>+</code> operator directly on DataFrame columns. Use <code>withColumn('new_col', col_a + col_b + col_c)</code> to create a derived column from arithmetic across multiple columns. You can reference columns via <code>df.col_name</code> or <code>F.col('col_name')</code>.",
+    "example_code": "# Example: add up weekly scores into a total\nscores_df = spark.createDataFrame(\n    [(1, 'Alice', 10, 15, 12)],\n    ['id', 'name', 'week1', 'week2', 'week3']\n)\n\nresult = scores_df.withColumn(\n    'total_score',\n    scores_df.week1 + scores_df.week2 + scores_df.week3\n)\n# Adds column: total_score = 37",
+    "output_note": "The + operator on DataFrame columns creates a new column expression. Wrap it in withColumn() to materialise it."
+  },
+  "starter_code": "# No CSV for this mission — create the DataFrame inline\ndata = [(203040, 'rajesh', 10, 20, 30, 40, 50)]\ncols = ['rollno', 'name', 'telugu', 'english', 'maths', 'science', 'social']\n\nmarks_df = spark.createDataFrame(data, cols)\n\n# TODO: add a 'total' column = sum of all five subjects\nresult = marks_df.withColumn('total', ___)",
+
+  "expected": [
+    {"rollno": 203040, "name": "rajesh", "telugu": 10, "english": 20, "maths": 30, "science": 40, "social": 50, "total": 150}
+  ],
+  "hints": [
+    "Use spark.createDataFrame(data, columns) to build the DataFrame.",
+    "Add columns with + : marks_df.telugu + marks_df.english + ... and assign with withColumn('total', ...)"
+  ]
+}

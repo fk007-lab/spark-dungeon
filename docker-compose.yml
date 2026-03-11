@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    container_name: spark_dungeon
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live-editable: templates, CSS, JS — changes reflect immediately
+      - ./frontend:/app/frontend
+      # Live-editable: mission JSON files and datasets
+      - ./data:/app/data
+      # Persist player progress across container restarts
+      - ./progress:/app/progress
+    environment:
+      # Keep PySpark well-behaved inside a container
+      - PYSPARK_PYTHON=python3
+      - SPARK_LOCAL_IP=127.0.0.1
+    restart: unless-stopped

@@ -1,0 +1,31 @@
+{
+  "id": "d1_m2",
+  "dungeon_id": "dungeon1",
+  "order": 2,
+  "title": "The Filter Gate",
+  "topic": "filter() / where()",
+  "story": "A locked iron gate blocks your path. The runes say: 'Only those who earn more than 80,000 may pass.' You must filter the unworthy.",
+  "problem": "Filter the employees DataFrame to keep only employees with `salary` greater than 80000. Select only `name` and `salary` in the result.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>filter()</code> (also called <code>where()</code>) keeps only rows where a condition is True — exactly like SQL WHERE. You can compare column values using <code>></code>, <code><</code>, <code>==</code>, <code>!=</code> and chain with <code>&</code> (AND) or <code>|</code> (OR).",
+    "example_code": "# Example: keep only fruits that cost more than 1.0\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8), ('Mango', 2.0)],\n    ['name', 'price']\n)\n\n# Two equivalent ways to filter:\nresult = fruits_df.filter(fruits_df.price > 1.0)\n# OR:\nresult = fruits_df.where(fruits_df.price > 1.0)\n# result: Apple (1.5), Mango (2.0)",
+    "output_note": "Rows where the condition is False are dropped. Banana (0.8) does not appear."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: keep only employees whose salary > 80000, then select name and salary\nresult = df.filter(___).select('name', 'salary')",
+
+  "expected": [
+    {"name": "Alice",  "salary": 95000},
+    {"name": "Carol",  "salary": 110000},
+    {"name": "Frank",  "salary": 125000},
+    {"name": "Heidi",  "salary": 88000},
+    {"name": "Ivan",   "salary": 105000},
+    {"name": "Karl",   "salary": 115000},
+    {"name": "Laura",  "salary": 92000},
+    {"name": "Oscar",  "salary": 130000}
+  ],
+  "hints": [
+    "Use df.filter(df.salary > 80000) or df.where(df.salary > 80000).",
+    "Chain .select('name', 'salary') after the filter to keep only two columns."
+  ]
+}

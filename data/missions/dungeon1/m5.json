@@ -1,0 +1,38 @@
+{
+  "id": "d1_m5",
+  "dungeon_id": "dungeon1",
+  "order": 5,
+  "title": "The Name Scroll",
+  "topic": "withColumnRenamed()",
+  "story": "The dungeon's ancient record keeper insists on proper column naming conventions. The column `department` must be known as `dept` from this point forward. Rewrite the scroll.",
+  "problem": "Rename the column `department` to `dept`. Select only `name`, `dept`, and `salary` in the result.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>withColumnRenamed(old, new)</code> renames a column. Only the name changes — the data is untouched. This is useful when column names come from source data with bad naming conventions and you need clean names for downstream operations.",
+    "example_code": "# Example: rename 'item_price' to 'price'\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8)],\n    ['item_name', 'item_price']\n)\n\nresult = fruits_df.withColumnRenamed('item_name', 'name') \\\n                  .withColumnRenamed('item_price', 'price')\n# Columns are now: name | price",
+    "output_note": "You can chain multiple withColumnRenamed() calls to rename several columns at once."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: rename 'department' to 'dept', then select name, dept, salary\nresult = df.withColumnRenamed(___, ___).select(___)",
+
+  "expected": [
+    {"name": "Alice",   "dept": "Engineering", "salary": 95000},
+    {"name": "Bob",     "dept": "Marketing",   "salary": 62000},
+    {"name": "Carol",   "dept": "Engineering", "salary": 110000},
+    {"name": "David",   "dept": "HR",          "salary": 55000},
+    {"name": "Eve",     "dept": "Marketing",   "salary": 70000},
+    {"name": "Frank",   "dept": "Engineering", "salary": 125000},
+    {"name": "Grace",   "dept": "HR",          "salary": 52000},
+    {"name": "Heidi",   "dept": "Finance",     "salary": 88000},
+    {"name": "Ivan",    "dept": "Finance",     "salary": 105000},
+    {"name": "Judy",    "dept": "Marketing",   "salary": 65000},
+    {"name": "Karl",    "dept": "Engineering", "salary": 115000},
+    {"name": "Laura",   "dept": "Finance",     "salary": 92000},
+    {"name": "Mallory", "dept": "HR",          "salary": 50000},
+    {"name": "Niaj",    "dept": "Marketing",   "salary": 75000},
+    {"name": "Oscar",   "dept": "Engineering", "salary": 130000}
+  ],
+  "hints": [
+    "Use df.withColumnRenamed('department', 'dept') to rename the column.",
+    "Chain .select('name', 'dept', 'salary') after renaming."
+  ]
+}

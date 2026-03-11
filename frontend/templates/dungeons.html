@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Dungeons — Spark Dungeon{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🗺️ Choose Your Dungeon</h1>
+  <p class="subtitle">Clear every mission to unlock the next dungeon. Write PySpark. Level up.</p>
+</div>
+
+<div class="dungeon-grid">
+  {% for dungeon in dungeons %}
+  <div class="dungeon-card {% if not dungeon.unlocked %}locked{% endif %}">
+    {% if dungeon.unlocked %}
+      <a href="/dungeon/{{ dungeon.id }}" class="dungeon-link">
+    {% endif %}
+
+    <div class="dungeon-icon">{{ dungeon.icon | default("🏰") }}</div>
+    <div class="dungeon-info">
+      <h2>{{ dungeon.title }}</h2>
+      <p class="dungeon-desc">{{ dungeon.description }}</p>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" style="width: {{ dungeon.pct }}%"></div>
+      </div>
+      <span class="progress-label">{{ dungeon.solved }}/{{ dungeon.total }} missions</span>
+      {% if dungeon.solved == dungeon.total and dungeon.total > 0 %}
+        <span class="badge badge-complete">✔ Complete</span>
+      {% elif dungeon.unlocked %}
+        <span class="badge badge-active">▶ In Progress</span>
+      {% else %}
+        <span class="badge badge-locked">🔒 Locked</span>
+      {% endif %}
+    </div>
+
+    {% if dungeon.unlocked %}
+      </a>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

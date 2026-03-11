@@ -1,0 +1,27 @@
+{
+  "id": "d2_m2",
+  "dungeon_id": "dungeon2",
+  "order": 2,
+  "title": "The Tribe Counter",
+  "topic": "groupBy() + count()",
+  "story": "The spirit requires a breakdown by tribe. How many employees belong to each department? Name the count column `total`.",
+  "problem": "Group employees by `department` and count how many are in each. Name the count column `total`. Order by `department` ascending.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>groupBy(col).agg(...)</code> splits the DataFrame into groups (by unique values in the column), then applies an aggregation to each group. <code>F.count('*')</code> within <code>agg()</code> counts rows per group — equivalent to SQL's <code>GROUP BY col COUNT(*)</code>.",
+    "example_code": "# Example: count orders per customer\norders_df = spark.createDataFrame(\n    [(1, 'Alice'), (2, 'Bob'), (3, 'Alice'), (4, 'Carol')],\n    ['order_id', 'customer']\n)\n\nresult = orders_df.groupBy('customer').agg(F.count('*').alias('num_orders'))\n# result:\n# Alice | 2\n# Bob   | 1\n# Carol | 1",
+    "output_note": "Order of groups in the result is not guaranteed unless you chain .orderBy() after."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: group by department, count rows per group as 'total', order by department asc\nresult = df.groupBy(___).agg(___).orderBy(___)",
+
+  "expected": [
+    {"department": "Engineering", "total": 5},
+    {"department": "Finance",     "total": 3},
+    {"department": "HR",          "total": 3},
+    {"department": "Marketing",   "total": 4}
+  ],
+  "hints": [
+    "Use df.groupBy('department').agg(F.count('*').alias('total'))",
+    "Chain .orderBy('department') to sort alphabetically."
+  ]
+}

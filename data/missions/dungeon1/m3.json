@@ -1,0 +1,38 @@
+{
+  "id": "d1_m3",
+  "dungeon_id": "dungeon1",
+  "order": 3,
+  "title": "The Alchemist's Column",
+  "topic": "withColumn()",
+  "story": "An alchemist's workshop. On the bench: a formula — multiply each employee's annual salary by 1.1 to get their new salary after a 10% raise. The alchemist needs a new column created, not the old one replaced.",
+  "problem": "Add a new column `salary_after_raise` which is `salary * 1.1`. Select only `name`, `salary`, and `salary_after_raise` in the result.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>withColumn(name, expression)</code> adds a new column (or replaces an existing one) without touching other columns. The expression can be any arithmetic, function call, or conditional — it runs row-by-row. The original DataFrame is unchanged; you get a new one back.",
+    "example_code": "# Example: add a 'discounted_price' column = price * 0.9\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8), ('Mango', 2.0)],\n    ['name', 'price']\n)\n\nresult = fruits_df.withColumn('discounted_price', fruits_df.price * 0.9)\n# Adds a new column; original 'price' is still there\n# name | price | discounted_price",
+    "output_note": "The original columns are preserved. The new column is appended. Use .select() after to trim columns if needed."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: add column 'salary_after_raise' = salary * 1.1\n# Then select only name, salary, salary_after_raise\nresult = df.withColumn('salary_after_raise', ___).select(___)",
+
+  "expected": [
+    {"name": "Alice",   "salary": 95000,  "salary_after_raise": 104500.0},
+    {"name": "Bob",     "salary": 62000,  "salary_after_raise": 68200.0},
+    {"name": "Carol",   "salary": 110000, "salary_after_raise": 121000.0},
+    {"name": "David",   "salary": 55000,  "salary_after_raise": 60500.0},
+    {"name": "Eve",     "salary": 70000,  "salary_after_raise": 77000.0},
+    {"name": "Frank",   "salary": 125000, "salary_after_raise": 137500.0},
+    {"name": "Grace",   "salary": 52000,  "salary_after_raise": 57200.0},
+    {"name": "Heidi",   "salary": 88000,  "salary_after_raise": 96800.0},
+    {"name": "Ivan",    "salary": 105000, "salary_after_raise": 115500.0},
+    {"name": "Judy",    "salary": 65000,  "salary_after_raise": 71500.0},
+    {"name": "Karl",    "salary": 115000, "salary_after_raise": 126500.0},
+    {"name": "Laura",   "salary": 92000,  "salary_after_raise": 101200.0},
+    {"name": "Mallory", "salary": 50000,  "salary_after_raise": 55000.0},
+    {"name": "Niaj",    "salary": 75000,  "salary_after_raise": 82500.0},
+    {"name": "Oscar",   "salary": 130000, "salary_after_raise": 143000.0}
+  ],
+  "hints": [
+    "Use df.withColumn('salary_after_raise', df.salary * 1.1) to create the new column.",
+    "Chain .select('name', 'salary', 'salary_after_raise') to limit the output columns."
+  ]
+}

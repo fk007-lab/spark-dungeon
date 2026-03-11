@@ -1,0 +1,24 @@
+{
+  "id": "d2_m1",
+  "dungeon_id": "dungeon2",
+  "order": 1,
+  "title": "The Census",
+  "topic": "count()",
+  "story": "A forest spirit demands a census before granting passage. How many souls dwell in the employee realm? Count them all.",
+  "problem": "Count the total number of rows in the employees DataFrame. Return a DataFrame with a single column `total` containing the count.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>count()</code> is the simplest aggregation — it counts rows. To get it back as a DataFrame (not just a number), wrap it in <code>.agg(F.count('*').alias('col_name'))</code>. This is the PySpark equivalent of <code>SELECT COUNT(*) FROM table</code>.",
+    "example_code": "# Example: count total orders in an orders table\norders_df = spark.createDataFrame(\n    [(1, 'Alice'), (2, 'Bob'), (3, 'Alice')],\n    ['order_id', 'customer']\n)\n\n# Returns a DataFrame with one row, one column\nresult = orders_df.agg(F.count('*').alias('total_orders'))\n# result: total_orders = 3",
+    "output_note": "F.count('*') counts all rows including nulls. Use a specific column name to skip nulls in that column."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: count all rows, return a DataFrame with one column called 'total'\nresult = df.agg(___)",
+
+  "expected": [
+    {"total": 15}
+  ],
+  "hints": [
+    "Use df.agg(F.count('*').alias('total')) to get the count as a DataFrame.",
+    "F is already imported as pyspark.sql.functions — use F.count()"
+  ]
+}

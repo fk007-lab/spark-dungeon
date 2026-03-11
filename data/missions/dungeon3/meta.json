@@ -1,0 +1,7 @@
+{
+  "id": "dungeon3",
+  "title": "Tower of Ranks",
+  "description": "Window functions: ROW_NUMBER, RANK, DENSE_RANK, cumulative SUM, LAG, LEAD — and ranking within partitions.",
+  "icon": "🏆",
+  "unlock_requires": ["dungeon2"]
+}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ dungeon.title }} — Spark Dungeon{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/" class="back-link">← All Dungeons</a>
+  <h1>{{ dungeon.icon | default("🏰") }} {{ dungeon.title }}</h1>
+  <p class="subtitle">{{ dungeon.description }}</p>
+</div>
+
+<div class="mission-list">
+  {% for mission in missions %}
+  <div class="mission-row status-{{ mission.status }}">
+    <div class="mission-num">#{{ loop.index }}</div>
+    <div class="mission-info">
+      <span class="mission-title">{{ mission.title }}</span>
+      <span class="mission-topic">{{ mission.topic | default("") }}</span>
+    </div>
+    <div class="mission-meta">
+      {% if mission.status == "solved" %}
+        <span class="badge badge-complete">✔ Solved</span>
+        <a href="/mission/{{ mission.id }}" class="btn btn-sm">Review</a>
+      {% elif mission.status == "unlocked" %}
+        <span class="badge badge-active">▶ Open</span>
+        <a href="/mission/{{ mission.id }}" class="btn btn-sm btn-primary">Start →</a>
+      {% else %}
+        <span class="badge badge-locked">🔒 Locked</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

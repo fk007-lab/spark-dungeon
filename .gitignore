@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+
+# PySpark / Spark temp files
+derby.log
+metastore_db/
+spark-warehouse/
+
+# Progress database (personal, not committed)
+progress/
+
+# Cloned source repos used during development
+_repos/
+_extract.py
+_write_*.py
+
+# Docker
+.docker/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/

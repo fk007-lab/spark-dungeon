@@ -1,0 +1,38 @@
+{
+  "id": "d1_m4",
+  "dungeon_id": "dungeon1",
+  "order": 4,
+  "title": "The Ranking Stone",
+  "topic": "orderBy()",
+  "story": "A magical leaderboard carved in stone awaits. The inscription reads: 'Reveal the hierarchy — highest earner at the top.' The dungeon wants salaries ranked from richest to poorest.",
+  "problem": "Sort all employees by `salary` in descending order. Select only `name` and `salary` in the result.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>orderBy()</code> (also called <code>sort()</code>) sorts the DataFrame rows. By default it's ascending. Use <code>.desc()</code> on a column or pass <code>ascending=False</code> to flip it. You can sort by multiple columns — earlier ones take priority.",
+    "example_code": "# Example: sort fruits by price, highest first\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8), ('Mango', 2.0)],\n    ['name', 'price']\n)\n\n# Option A: column method\nresult = fruits_df.orderBy(fruits_df.price.desc())\n\n# Option B: string + keyword argument\nresult = fruits_df.orderBy('price', ascending=False)\n# result order: Mango(2.0), Apple(1.5), Banana(0.8)",
+    "output_note": "Without .desc() or ascending=False the default is ascending (lowest first)."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: sort by salary descending, then select name and salary\nresult = df.orderBy(___).select('name', 'salary')",
+
+  "expected": [
+    {"name": "Oscar",   "salary": 130000},
+    {"name": "Frank",   "salary": 125000},
+    {"name": "Karl",    "salary": 115000},
+    {"name": "Carol",   "salary": 110000},
+    {"name": "Ivan",    "salary": 105000},
+    {"name": "Alice",   "salary": 95000},
+    {"name": "Laura",   "salary": 92000},
+    {"name": "Heidi",   "salary": 88000},
+    {"name": "Niaj",    "salary": 75000},
+    {"name": "Eve",     "salary": 70000},
+    {"name": "Judy",    "salary": 65000},
+    {"name": "Bob",     "salary": 62000},
+    {"name": "David",   "salary": 55000},
+    {"name": "Grace",   "salary": 52000},
+    {"name": "Mallory", "salary": 50000}
+  ],
+  "hints": [
+    "Use df.orderBy(df.salary.desc()) to sort descending.",
+    "You can also write df.orderBy('salary', ascending=False)."
+  ]
+}

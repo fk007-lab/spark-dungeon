@@ -1,0 +1,7 @@
+{
+  "id": "dungeon1",
+  "title": "Cave of Awakening",
+  "description": "Learn the core building blocks: selecting columns, filtering rows, transforming data, and sorting. Every PySpark journey starts here.",
+  "icon": "🕯️",
+  "unlock_requires": []
+}

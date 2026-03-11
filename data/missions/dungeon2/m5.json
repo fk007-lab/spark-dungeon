@@ -1,0 +1,26 @@
+{
+  "id": "d2_m5",
+  "dungeon_id": "dungeon2",
+  "order": 5,
+  "title": "The Elite Guilds",
+  "topic": "filter() on aggregated result (HAVING)",
+  "story": "Only the departments whose total salary exceeds 250,000 gold are recognised as Elite Guilds. Find and name them.",
+  "problem": "Group employees by `department`, compute `total_salary`. Keep only departments where `total_salary` > 250000. Order by `total_salary` descending.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "In SQL, HAVING filters groups after aggregation. In PySpark, chain a regular <code>.filter()</code> after <code>.agg()</code> — it works the same way. Use <code>F.col('aggregated_column_name')</code> to reference the new column created by <code>.alias()</code>.",
+    "example_code": "# Example: keep only categories with total revenue > 100\nsales_df = spark.createDataFrame(\n    [('drinks', 120.0), ('snacks', 80.0), ('drinks', 50.0)],\n    ['category', 'revenue']\n)\n\nresult = (\n    sales_df.groupBy('category')\n    .agg(F.sum('revenue').alias('total_revenue'))\n    .filter(F.col('total_revenue') > 100)  # HAVING equivalent\n)\n# Only 'drinks' (170.0) passes the filter; snacks (80.0) is excluded.",
+    "output_note": "F.col() is needed here because 'total_revenue' is a computed alias, not an original column from the DataFrame."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: group by department, sum salary as 'total_salary'\n# Keep only departments where total_salary > 250000\n# Order by total_salary descending\nresult = (\n    df.groupBy(___)\n    .agg(___)\n    .filter(___)\n    .orderBy(___)\n)",
+
+  "expected": [
+    {"department": "Engineering", "total_salary": 575000},
+    {"department": "Finance",     "total_salary": 285000},
+    {"department": "Marketing",   "total_salary": 272000}
+  ],
+  "hints": [
+    "Chain .filter(F.col('total_salary') > 250000) after .agg() — this is the HAVING equivalent.",
+    "Use F.col() to reference an aggregated column in the filter."
+  ]
+}

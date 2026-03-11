@@ -1,0 +1,143 @@
+{
+  "id": "d3_m1",
+  "dungeon_id": "dungeon3",
+  "order": 1,
+  "title": "The Row Numberer",
+  "topic": "ROW_NUMBER() window function",
+  "story": "The Tower's first trial: assign each sales rep a sequential rank within their region, ordered by revenue descending. The top earner gets row number 1.",
+  "problem": "Using the sales DataFrame, add a column `row_num` using ROW_NUMBER() partitioned by `region`, ordered by `revenue` descending. Select `employee_id`, `region`, `revenue`, `row_num`. Order by `region` asc, `row_num` asc.",
+  "dataset": "sales.csv",
+  "concept": {
+    "explanation": "<code>ROW_NUMBER()</code> assigns a unique sequential integer to each row within a partition, starting at 1. Define a <code>Window</code> spec with <code>partitionBy()</code> (= GROUP BY) and <code>orderBy()</code> (= which row gets 1), then apply it with <code>F.row_number().over(window_spec)</code>.",
+    "example_code": "from pyspark.sql.window import Window\n\n# Example: rank students by score within each class\nstudents_df = spark.createDataFrame(\n    [('A', 'Alice', 90), ('A', 'Bob', 75), ('B', 'Carol', 88), ('B', 'Dave', 92)],\n    ['class', 'name', 'score']\n)\n\n# Step 1: define the window\nwindow_spec = Window.partitionBy('class').orderBy(F.col('score').desc())\n\n# Step 2: apply ROW_NUMBER()\nresult = students_df.withColumn('rank', F.row_number().over(window_spec))\n# class A: Alice=1(90), Bob=2(75)\n# class B: Dave=1(92), Carol=2(88)",
+    "output_note": "ROW_NUMBER always gives unique numbers even if scores are tied. To share ranks on ties, use RANK() or DENSE_RANK() instead."
+  },
+  "starter_code": "from pyspark.sql.window import Window\n\n# df is pre-loaded from sales.csv (columns: employee_id, region, month, revenue)\n\n# TODO: define a window partitioned by region, ordered by revenue desc\nwindow_spec = Window.partitionBy(___).orderBy(___)\n\n# TODO: add 'row_num' column, then select and order\nresult = (\n    df.withColumn('row_num', F.row_number().over(window_spec))\n    .select(___)\n    .orderBy(___)\n)",
+  "expected": [
+    {
+      "employee_id": 7,
+      "region": "East",
+      "revenue": 16500,
+      "row_num": 1
+    },
+    {
+      "employee_id": 7,
+      "region": "East",
+      "revenue": 16500,
+      "row_num": 2
+    },
+    {
+      "employee_id": 6,
+      "region": "East",
+      "revenue": 13000,
+      "row_num": 3
+    },
+    {
+      "employee_id": 6,
+      "region": "East",
+      "revenue": 12500,
+      "row_num": 4
+    },
+    {
+      "employee_id": 6,
+      "region": "East",
+      "revenue": 11000,
+      "row_num": 5
+    },
+    {
+      "employee_id": 3,
+      "region": "North",
+      "revenue": 21000,
+      "row_num": 1
+    },
+    {
+      "employee_id": 2,
+      "region": "North",
+      "revenue": 18000,
+      "row_num": 2
+    },
+    {
+      "employee_id": 3,
+      "region": "North",
+      "revenue": 18000,
+      "row_num": 3
+    },
+    {
+      "employee_id": 2,
+      "region": "North",
+      "revenue": 17000,
+      "row_num": 4
+    },
+    {
+      "employee_id": 1,
+      "region": "North",
+      "revenue": 14000,
+      "row_num": 5
+    },
+    {
+      "employee_id": 1,
+      "region": "North",
+      "revenue": 13500,
+      "row_num": 6
+    },
+    {
+      "employee_id": 1,
+      "region": "North",
+      "revenue": 12000,
+      "row_num": 7
+    },
+    {
+      "employee_id": 5,
+      "region": "South",
+      "revenue": 16000,
+      "row_num": 1
+    },
+    {
+      "employee_id": 5,
+      "region": "South",
+      "revenue": 15500,
+      "row_num": 2
+    },
+    {
+      "employee_id": 5,
+      "region": "South",
+      "revenue": 14000,
+      "row_num": 3
+    },
+    {
+      "employee_id": 4,
+      "region": "South",
+      "revenue": 9500,
+      "row_num": 4
+    },
+    {
+      "employee_id": 4,
+      "region": "South",
+      "revenue": 9000,
+      "row_num": 5
+    },
+    {
+      "employee_id": 8,
+      "region": "West",
+      "revenue": 22000,
+      "row_num": 1
+    },
+    {
+      "employee_id": 8,
+      "region": "West",
+      "revenue": 20000,
+      "row_num": 2
+    },
+    {
+      "employee_id": 8,
+      "region": "West",
+      "revenue": 19500,
+      "row_num": 3
+    }
+  ],
+  "hints": [
+    "Define: window_spec = Window.partitionBy('region').orderBy(F.col('revenue').desc())",
+    "Apply: df.withColumn('row_num', F.row_number().over(window_spec))",
+    "Select: 'employee_id', 'region', 'revenue', 'row_num' — order by region, row_num"
+  ]
+}

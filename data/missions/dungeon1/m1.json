@@ -1,0 +1,38 @@
+{
+  "id": "d1_m1",
+  "dungeon_id": "dungeon1",
+  "order": 1,
+  "title": "First Light",
+  "topic": "select()",
+  "story": "You awaken in a stone chamber. A glowing inscription on the wall reads: 'To pass, show only what is needed.' The dungeon demands focus — strip the DataFrame to just the essentials.",
+  "problem": "The employees DataFrame has many columns. Select only `name` and `salary` and assign the result to `result`.",
+  "dataset": "employees.csv",
+  "concept": {
+    "explanation": "<code>select()</code> picks specific columns from a DataFrame — like choosing which columns to show in a SQL SELECT. You can pass column names as strings. Everything else is dropped from the result.",
+    "example_code": "# Example: load a fruits table and select only name and price\nfruits_df = spark.createDataFrame(\n    [(1, 'Apple', 1.5, 'red'), (2, 'Banana', 0.8, 'yellow')],\n    ['id', 'name', 'price', 'color']\n)\n\n# Select only name and price — drop id and color\nresult = fruits_df.select('name', 'price')\n# result: name | price",
+    "output_note": "Only the columns named inside select() appear in the output. All other columns are excluded."
+  },
+  "starter_code": "# df is pre-loaded from employees.csv\n# TODO: select only the 'name' and 'salary' columns\nresult = df.select(___)",
+
+  "expected": [
+    {"name": "Alice",   "salary": 95000},
+    {"name": "Bob",     "salary": 62000},
+    {"name": "Carol",   "salary": 110000},
+    {"name": "David",   "salary": 55000},
+    {"name": "Eve",     "salary": 70000},
+    {"name": "Frank",   "salary": 125000},
+    {"name": "Grace",   "salary": 52000},
+    {"name": "Heidi",   "salary": 88000},
+    {"name": "Ivan",    "salary": 105000},
+    {"name": "Judy",    "salary": 65000},
+    {"name": "Karl",    "salary": 115000},
+    {"name": "Laura",   "salary": 92000},
+    {"name": "Mallory", "salary": 50000},
+    {"name": "Niaj",    "salary": 75000},
+    {"name": "Oscar",   "salary": 130000}
+  ],
+  "hints": [
+    "Use df.select('name', 'salary') — pass column names as strings.",
+    "Make sure you assign the result to a variable called `result`."
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "dungeon2",
+  "title": "Forest of Numbers",
+  "description": "Master aggregations: count, sum, average, groupBy — and learn to filter on aggregated results.",
+  "icon": "🌲",
+  "unlock_requires": ["dungeon1"]
+}

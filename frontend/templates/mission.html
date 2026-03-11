@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}{{ mission.title }} — Spark Dungeon{% endblock %}
+
+{% block content %}
+<div class="mission-wrapper">
+
+  <!-- TOP: Concept teach panel (W3Schools style) -->
+  {% if mission.concept %}
+  <div class="concept-panel">
+    <div class="concept-header">
+      <span class="concept-tag">📖 Learn the concept first</span>
+      <span class="concept-topic">{{ mission.topic }}</span>
+    </div>
+    <div class="concept-body">
+      <p class="concept-explanation">{{ mission.concept.explanation }}</p>
+
+      <div class="concept-example-block">
+        <div class="example-bar">
+          <span class="example-label">Example</span>
+          <button class="btn btn-sm btn-try" onclick="loadExample()">⚡ Try it in the editor</button>
+        </div>
+        <pre class="example-code"><code>{{ mission.concept.example_code }}</code></pre>
+      </div>
+
+      {% if mission.concept.output_note %}
+      <div class="concept-output-note">
+        <span class="output-note-label">Output note:</span> {{ mission.concept.output_note }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- BOTTOM: two-column mission + editor -->
+  <div class="mission-page">
+
+    <!-- Left: problem panel -->
+    <div class="problem-panel">
+      <a href="/dungeon/{{ dungeon.id }}" class="back-link">← {{ dungeon.title }}</a>
+
+      <div class="story-box">
+        <p class="story-text">{{ mission.story }}</p>
+      </div>
+
+      <h2>{{ mission.title }}</h2>
+      <div class="problem-statement">{{ mission.problem }}</div>
+
+      {% if mission.dataset %}
+      <div class="dataset-info">
+        <strong>Dataset:</strong>
+        <code>df</code> — <em>{{ mission.dataset }}</em>
+        {% if mission.dataset2 %}
+          &nbsp;+&nbsp;<code>df2</code> — <em>{{ mission.dataset2 }}</em>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="hint-actions">
+        {% if mission.hints %}
+        <button class="btn btn-sm hint-btn" id="hint-btn" onclick="showHint()">💡 Show Hint</button>
+        {% endif %}
+      </div>
+
+      <div class="hint-box" id="hint-box" style="display:none">
+        <span class="hint-label">💡 Hint:</span>
+        <span id="hint-text"></span>
+      </div>
+
+      {% if status == "solved" %}
+      <div class="solved-banner">✔ You've already solved this mission!</div>
+      {% endif %}
+    </div>
+
+    <!-- Right: editor + results panel -->
+    <div class="editor-panel">
+      <div class="editor-header">
+        <span class="editor-label">Python / PySpark</span>
+        <div class="editor-actions">
+          <button class="btn btn-sm btn-reset-code" onclick="resetCode()" title="Reset to starter">↺ Reset</button>
+          <button id="run-btn" class="btn btn-primary btn-run" onclick="runCode()">▶ Run</button>
+        </div>
+      </div>
+
+      <textarea id="code-editor">{{ mission.starter_code }}</textarea>
+
+      <!-- Result area -->
+      <div id="result-area" style="display:none">
+        <div id="verdict-banner" class="verdict-banner"></div>
+
+        <div id="validation-hint" class="validation-hint" style="display:none"></div>
+
+        <div id="result-table-wrap">
+          <h4>Result Preview</h4>
+          <div class="table-scroll">
+            <table id="result-table" class="result-table"></table>
+          </div>
+        </div>
+
+        <details id="explain-details" class="explain-block">
+          <summary>📋 Execution Plan</summary>
+          <pre id="explain-pre"></pre>
+        </details>
+      </div>
+
+      <div id="error-area" class="error-area" style="display:none">
+        <strong>Error:</strong>
+        <pre id="error-pre"></pre>
+      </div>
+
+      <div id="next-btn-wrap" style="display:none; margin-top:1rem">
+        {% if next_mission_id %}
+          <a id="next-btn" href="/mission/{{ next_mission_id }}" class="btn btn-primary btn-next">
+            Next Mission →
+          </a>
+        {% else %}
+          <a href="/dungeon/{{ dungeon.id }}" class="btn btn-primary btn-next">
+            Back to Dungeon Map →
+          </a>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/editor.js"></script>
+<script>
+  const STARTER_CODE = {{ mission.starter_code | tojson }};
+  const EXAMPLE_CODE = {{ (mission.concept.example_code if mission.concept else "") | tojson }};
+
+  initEditor(STARTER_CODE);
+
+  function loadExample() {
+    if (EXAMPLE_CODE) {
+      editor.setValue(EXAMPLE_CODE);
+      editor.focus();
+    }
+  }
+
+  function resetCode() {
+    editor.setValue(STARTER_CODE);
+    editor.focus();
+    document.getElementById('result-area').style.display = 'none';
+    document.getElementById('error-area').style.display = 'none';
+  }
+
+  // If already solved, show next button immediately
+  {% if status == "solved" %}
+  document.getElementById('next-btn-wrap').style.display = 'block';
+  {% endif %}
+</script>
+{% endblock %}
