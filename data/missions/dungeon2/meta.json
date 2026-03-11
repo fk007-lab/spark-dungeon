@@ -3,5 +3,54 @@
   "title": "Forest of Numbers",
   "description": "Master aggregations: count, sum, average, groupBy — and learn to filter on aggregated results.",
   "icon": "🌲",
-  "unlock_requires": ["dungeon1"]
+  "unlock_requires": [
+    "dungeon1"
+  ],
+  "theory_scroll": [
+    {
+      "type": "text",
+      "content": "<strong>Dungeon II covers the operations that move or reshape data across the cluster</strong> — joins, window functions, unions, UDFs, and caching. These are where most Spark performance issues live at MAANG scale, and where junior engineers make the most expensive mistakes."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Operation",
+        "Cost",
+        "Key gotcha"
+      ],
+      "rows": [
+        [
+          "<code>join()</code>",
+          "Sort-Merge: 2 shuffles. Broadcast: 0 shuffles",
+          "Skew on join key use broadcast() or salting"
+        ],
+        [
+          "Window functions",
+          "1 shuffle on PARTITION BY key",
+          "No PARTITION BY = full data to 1 executor = OOM"
+        ],
+        [
+          "<code>union()</code> / <code>distinct()</code>",
+          "distinct() = full shuffle",
+          "unionByName() vs union() by position — silent corruption risk"
+        ],
+        [
+          "UDFs",
+          "Row-by-row JVM-to-Python serialization",
+          "Always prefer built-in functions; use pandas_udf if must"
+        ],
+        [
+          "<code>cache()</code> / <code>persist()</code>",
+          "Memory pressure",
+          "Lazy — must run action to materialize. Always unpersist() when done"
+        ]
+      ]
+    },
+    {
+      "type": "callout",
+      "style": "warning",
+      "icon": "⚠️",
+      "content": "The #1 production incident cause at MAANG data teams: <strong>data skew on join keys</strong> (especially null/unknown values). Always check key distribution with <code>df.groupBy(key).count().orderBy('count', ascending=False).show(10)</code> before joining."
+    }
+  ]
 }

@@ -10,12 +10,109 @@
   "concept": {
     "explanation": "<code>count()</code> is the simplest aggregation — it counts rows. To get it back as a DataFrame (not just a number), wrap it in <code>.agg(F.count('*').alias('col_name'))</code>. This is the PySpark equivalent of <code>SELECT COUNT(*) FROM table</code>.",
     "example_code": "# Example: count total orders in an orders table\norders_df = spark.createDataFrame(\n    [(1, 'Alice'), (2, 'Bob'), (3, 'Alice')],\n    ['order_id', 'customer']\n)\n\n# Returns a DataFrame with one row, one column\nresult = orders_df.agg(F.count('*').alias('total_orders'))\n# result: total_orders = 3",
-    "output_note": "F.count('*') counts all rows including nulls. Use a specific column name to skip nulls in that column."
+    "output_note": "F.count('*') counts all rows including nulls. Use a specific column name to skip nulls in that column.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>join()</strong> in Spark combines two DataFrames based on a matching key — equivalent to SQL <code>JOIN</code>. Under the hood, Spark selects a physical join strategy: <em>Sort-Merge Join</em>, <em>Broadcast Hash Join</em>, or <em>Shuffle Hash Join</em>. Choosing the wrong strategy (or letting Spark choose poorly) is the #1 cause of out-of-memory errors and overnight job failures at MAANG scale."
+      },
+      {
+        "type": "heading",
+        "content": "Join strategies compared"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Strategy",
+          "When used",
+          "Cost"
+        ],
+        "rows": [
+          [
+            "Broadcast Hash Join",
+            "Small table (&lt;10 MB default, configurable)",
+            "Zero shuffle — best perf"
+          ],
+          [
+            "Sort-Merge Join",
+            "Both tables large, sorted by key",
+            "2 shuffles + sort — expensive but scalable"
+          ],
+          [
+            "Shuffle Hash Join",
+            "Medium unequal tables",
+            "1 shuffle + hash table in memory"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "from pyspark.sql.functions import broadcast\n\n# Default join (Spark picks strategy)\nresult = df_orders.join(df_customers, on='customer_id', how='inner')\n\n# Force broadcast join for small lookup table\nresult = df_orders.join(broadcast(df_regions), on='region_id', how='left')\n\n# Multi-column join key\nresult = df_a.join(df_b, on=['country', 'year'], how='inner')\n\n# Inequality join (only Sort-Merge or nested-loop)\nresult = df_a.join(df_b, df_a.date.between(df_b.start, df_b.end), how='inner')"
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>Beware of data skew in joins.</strong> If 80% of orders belong to one customer_id (e.g., 'Unknown'), all those rows land on the same executor — causing OOM or stragglers. Fix with <em>salting</em>: add a random suffix to the skewed key, explode the small table to match, then join on the salted key."
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "Always check the physical plan with <code>df.explain(mode='formatted')</code>. Look for <code>BroadcastHashJoin</code> vs <code>SortMergeJoin</code>. If Spark picked SortMergeJoin for a 5 MB lookup table, the auto-broadcast threshold may be misconfigured (<code>spark.sql.autoBroadcastJoinThreshold</code>, default 10 MB)."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "Broadcast Join",
+        "definition": "Spark sends a full copy of the small table to every executor. Zero shuffle — fastest possible join. Triggered automatically when table size &lt; <code>spark.sql.autoBroadcastJoinThreshold</code> (default 10 MB) or manually via <code>broadcast()</code>."
+      },
+      {
+        "term": "Sort-Merge Join",
+        "definition": "Default for large-large joins. Both tables are shuffled by join key, sorted, then merged. Requires 2 full shuffles — the most expensive join type."
+      },
+      {
+        "term": "Data Skew",
+        "definition": "One key has disproportionately more rows (e.g., null or 'unknown'). Causes one task to process 1000× more data than others — OOM or straggler. Fix: salt the key or isolate the skewed value."
+      },
+      {
+        "term": "how parameter",
+        "definition": "Join type: <code>'inner'</code>, <code>'left'</code> (left outer), <code>'right'</code>, <code>'full'</code> (full outer), <code>'left_semi'</code>, <code>'left_anti'</code>, <code>'cross'</code>."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "You're joining a 2 TB orders table with a 3 MB country lookup table. What should you do?",
+        "options": [
+          "Use the default join — Spark will auto-detect the broadcast opportunity",
+          "Explicitly use broadcast(df_countries) and verify with explain() that BroadcastHashJoin is used",
+          "Repartition both tables to the same number of partitions before joining",
+          "Use left_semi join to minimize data transfer"
+        ],
+        "answer": 1,
+        "explanation": "While Spark may auto-broadcast at 3 MB (under the 10 MB default threshold), explicitly using <code>broadcast()</code> is safer — it guarantees the strategy regardless of stats availability and documents intent for reviewers. Always verify with <code>explain()</code> that you actually get a <code>BroadcastHashJoin</code> and not a <code>SortMergeJoin</code>."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "This join produces duplicate columns and downstream code crashes:",
+        "code": "result = df_orders.join(df_customers, df_orders.customer_id == df_customers.customer_id)\nresult.select('customer_id')  # AnalysisException: Ambiguous references",
+        "options": [
+          "You must use how='inner' explicitly — default join type is cross join",
+          "When joining on a condition (not a string column name), both customer_id columns are kept, creating ambiguity. Use on='customer_id' (string) or drop the duplicate after joining",
+          "df_orders and df_customers must have the same schema for join to work",
+          "select() after join always fails — use withColumn() instead"
+        ],
+        "answer": 1,
+        "explanation": "When you join using a Column condition (<code>df_a.col == df_b.col</code>), Spark keeps BOTH columns in the output — resulting in two columns both named <code>customer_id</code>. Subsequent <code>select('customer_id')</code> is ambiguous and raises <code>AnalysisException</code>. Fix: use <code>join(df_b, on='customer_id')</code> (string key) which deduplicates automatically, or drop one column after joining."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: count all rows, return a DataFrame with one column called 'total'\nresult = df.agg(___)",
-
   "expected": [
-    {"total": 15}
+    {
+      "total": 15
+    }
   ],
   "hints": [
     "Use df.agg(F.count('*').alias('total')) to get the count as a DataFrame.",

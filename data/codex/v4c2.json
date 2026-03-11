@@ -1,0 +1,112 @@
+{
+  "id": "v4c2",
+  "volume": "vol4",
+  "volume_title": "Volume IV — Streaming & Kafka",
+  "title": "Kafka + Spark Integration",
+  "estimated_time": "17 min",
+  "sections": [
+    {
+      "title": "Kafka Concepts Every Spark Engineer Needs",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "You can't tune the Kafka-Spark integration without understanding Kafka's data model. These six concepts come up in every streaming DE interview."
+        },
+        {
+          "type": "table",
+          "headers": ["Concept", "Definition", "Spark implication"],
+          "rows": [
+            ["<strong>Topic</strong>", "Named log of messages — logically a stream", "One readStream source per topic (or multi-topic pattern)"],
+            ["<strong>Partition</strong>", "Ordered, immutable sequence of messages within a topic", "One Spark task reads one Kafka partition — parallelism = num_partitions"],
+            ["<strong>Offset</strong>", "Sequential ID of a message within a partition", "Spark stores last-read offset in checkpoint — basis for replay"],
+            ["<strong>Producer</strong>", "Application writing to a topic", "Your upstream service / Flink pipeline"],
+            ["<strong>Consumer Group</strong>", "Set of consumers that together read all partitions", "Spark query is one consumer group — checkpoints track its offsets"],
+            ["<strong>Retention</strong>", "How long messages are kept (default 7 days)", "Determines how far back a failed job can replay"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Reading from Kafka",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "# Spark Kafka source (requires spark-sql-kafka jar)\n# spark-sql-kafka-0-10_2.12:3.5.0  (add to spark.jars.packages)\n\ndf_raw = spark.readStream \\\n    .format('kafka') \\\n    .option('kafka.bootstrap.servers', 'broker1:9092,broker2:9092') \\\n    .option('subscribe', 'user_events') \\\n    .option('startingOffsets', 'latest') \\\n    .load()\n\n# Raw schema is always:\n# key (binary), value (binary), topic (string), partition (int),\n# offset (long), timestamp (timestamp), timestampType (int)\ndf_raw.printSchema()\n\n# Multiple topics\n.option('subscribe', 'events,clicks,purchases')\n\n# Topic pattern (regex)\n.option('subscribePattern', 'events.*')\n\n# Starting offsets\n.option('startingOffsets', 'earliest')  # replay from beginning\n.option('startingOffsets', 'latest')    # only new messages\n.option('startingOffsets', json.dumps({\"events\": {\"0\": 42, \"1\": 100}}))  # specific"
+        }
+      ]
+    },
+    {
+      "title": "Parsing JSON Messages",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Kafka messages arrive as binary. You must decode the value column and apply a schema. Always define an explicit schema — <code>schema_of_json</code> sampling is non-deterministic in production."
+        },
+        {
+          "type": "code",
+          "content": "from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType\nimport pyspark.sql.functions as F\n\n# Step 1: Define the expected message schema\nmessage_schema = StructType([\n    StructField('user_id',    StringType()),\n    StructField('event_type', StringType()),\n    StructField('timestamp',  LongType()),\n    StructField('amount',     DoubleType())\n])\n\n# Step 2: Decode binary value → JSON string → struct\ndf_parsed = df_raw.select(\n    F.from_json(\n        F.col('value').cast('string'),  # binary → string\n        message_schema\n    ).alias('data'),\n    F.col('timestamp').alias('kafka_timestamp'),\n    F.col('partition'),\n    F.col('offset')\n).select('data.*', 'kafka_timestamp', 'partition', 'offset')\n\n# df_parsed now has: user_id, event_type, timestamp, amount, kafka_timestamp..."
+        }
+      ]
+    },
+    {
+      "title": "Writing to Kafka",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "# Kafka sink expects columns: value (required), key (optional), topic (optional)\n# Both key and value must be binary or string type\n\ndf_output = df_processed.select(\n    F.to_json(F.struct('user_id', 'result', 'processed_at')).alias('value'),\n    F.col('user_id').alias('key')  # optional — for partition routing\n)\n\nquery = df_output.writeStream \\\n    .format('kafka') \\\n    .option('kafka.bootstrap.servers', 'broker1:9092') \\\n    .option('topic', 'processed_events') \\\n    .option('checkpointLocation', 's3://bucket/checkpoints/output_kafka') \\\n    .start()"
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Rate limiting:</strong> Use <code>.option('maxOffsetsPerTrigger', N)</code> to limit how many messages are processed per micro-batch. Prevents a slow sink from creating a giant backlog in one batch. Good for catching up after downtime."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Topic Partition",
+      "glyph": "📐",
+      "definition": "Ordered, immutable append-only log within a Kafka topic. Keys to remember: (1) parallelism = number of partitions, (2) ordering guaranteed within one partition only, (3) Spark assigns one task per partition per micro-batch."
+    },
+    {
+      "term": "Offset",
+      "glyph": "🔢",
+      "definition": "Sequential integer ID of a message within a partition. Kafka never reorders — offset 42 is always the same message. Spark stores the 'last committed offset' in the checkpoint, enabling replay from exactly the right position."
+    },
+    {
+      "term": "from_json()",
+      "glyph": "🔄",
+      "definition": "PySpark function that parses a JSON string column into a StructType. Requires an explicit schema. Returns null for messages that don't match the schema. Always define the schema explicitly — never use schema inference in production streaming."
+    },
+    {
+      "term": "maxOffsetsPerTrigger",
+      "glyph": "🚦",
+      "definition": "Kafka source option limiting how many messages are consumed per micro-batch. Controls throughput and prevents runaway batches after catching up from lag. Set to (target_rows_per_second × trigger_interval_seconds)."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "A Kafka topic has 12 partitions. How many Spark tasks will be created to read it in one micro-batch?",
+      "options": [
+        "1 — Spark reads Kafka as a single stream",
+        "Depends on spark.default.parallelism",
+        "12 — one task per Kafka partition",
+        "spark.sql.shuffle.partitions (default 200)"
+      ],
+      "correct": 2,
+      "feedback": "Spark creates exactly one task per Kafka partition per micro-batch. So 12 partitions = 12 parallel tasks. To increase Spark parallelism, increase the number of Kafka topic partitions (only possible at topic creation time)."
+    },
+    {
+      "question": "After parsing Kafka messages with from_json(), some rows have null values for all fields even though the kafka offset column is present. What's the most likely cause?",
+      "options": [
+        "Kafka broker is down",
+        "The JSON message schema doesn't match the actual message format",
+        "startingOffsets is set to 'earliest'",
+        "The checkpoint is corrupted"
+      ],
+      "correct": 1,
+      "feedback": "from_json() returns null (not an error) when the input string doesn't match the provided schema. This means null for all nested fields while the Kafka metadata (offset, partition) remains. Check the schema matches actual message format or add .withColumn('parse_error', from_json(...).isNull()) to detect schema mismatches."
+    }
+  ]
+}

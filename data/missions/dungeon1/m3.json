@@ -10,26 +10,176 @@
   "concept": {
     "explanation": "<code>withColumn(name, expression)</code> adds a new column (or replaces an existing one) without touching other columns. The expression can be any arithmetic, function call, or conditional — it runs row-by-row. The original DataFrame is unchanged; you get a new one back.",
     "example_code": "# Example: add a 'discounted_price' column = price * 0.9\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8), ('Mango', 2.0)],\n    ['name', 'price']\n)\n\nresult = fruits_df.withColumn('discounted_price', fruits_df.price * 0.9)\n# Adds a new column; original 'price' is still there\n# name | price | discounted_price",
-    "output_note": "The original columns are preserved. The new column is appended. Use .select() after to trim columns if needed."
+    "output_note": "The original columns are preserved. The new column is appended. Use .select() after to trim columns if needed.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>withColumn()</strong> adds or replaces a column in a DataFrame. It takes a column name and a <code>Column</code> expression. The expression can reference existing columns via <code>col()</code>, use built-in functions, or perform arithmetic. <strong>Important</strong>: every <code>withColumn()</code> adds a <em>new projection node</em> to the logical plan — chaining many withColumn() calls generates deeply nested plans that slow down query compilation."
+      },
+      {
+        "type": "heading",
+        "content": "withColumn vs select for multiple new columns"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Approach",
+          "Plan nodes added",
+          "Compile time"
+        ],
+        "rows": [
+          [
+            "<code>df.withColumn('a', ...).withColumn('b', ...).withColumn('c', ...)</code>",
+            "3 projection nodes",
+            "Grows O(n) — avoid at scale"
+          ],
+          [
+            "<code>df.select('*', expr1.alias('a'), expr2.alias('b'), expr3.alias('c'))</code>",
+            "1 projection node",
+            "Flat plan — preferred for many cols"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "from pyspark.sql.functions import col, round, lit, when\n\n# Add a bonus column (10% of salary)\nresult = df.withColumn('bonus', col('salary') * 0.10)\n\n# Replace an existing column (round salary to nearest 1000)\nresult = df.withColumn('salary', (round(col('salary') / 1000) * 1000).cast('int'))\n\n# Performance-safe: use select for multiple new cols\nresult = df.select(\n    '*',\n    (col('salary') * 0.10).alias('bonus'),\n    (col('salary') * 1.12).alias('salary_with_tax'),\n    lit('USD').alias('currency')\n)"
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "The <code>lit()</code> function creates a <strong>literal column</strong> (constant value). Use it when you need to add a fixed string, number, or boolean as a column: <code>lit('USD')</code>, <code>lit(True)</code>, <code>lit(0)</code>."
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>Never chain 20+ withColumn() calls.</strong> Each generates a new Project node. For 50 new columns, Spark's analyzer must traverse a 50-deep plan tree. Use a single <code>select()</code> instead — the MAANG standard."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "withColumn()",
+        "definition": "Adds or overwrites a column: <code>df.withColumn('col_name', expression)</code>. Overwrites if the name already exists. One projection node per call."
+      },
+      {
+        "term": "col()",
+        "definition": "References a DataFrame column as an expression object. Needed for arithmetic, comparisons, and function calls: <code>col('salary') * 1.1</code>."
+      },
+      {
+        "term": "lit()",
+        "definition": "Creates a constant column: <code>lit('USD')</code>. Import from <code>pyspark.sql.functions</code>. Without it, passing a Python scalar throws a TypeError."
+      },
+      {
+        "term": "alias()",
+        "definition": "Renames a column expression: <code>col('salary').alias('annual_pay')</code>. Same as SQL <code>AS</code>. Used in <code>select()</code> and <code>agg()</code>."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "You need to add 15 new computed columns to a DataFrame. Which approach is better at MAANG scale?",
+        "options": [
+          "Chain 15 <code>withColumn()</code> calls — Spark automatically optimizes this",
+          "Use a single <code>select('*', expr1.alias('c1'), ...)</code> call with all expressions",
+          "Use <code>df.cache()</code> between every <code>withColumn()</code> to reduce plan depth",
+          "Both approaches produce identical query plans after Catalyst optimization"
+        ],
+        "answer": 1,
+        "explanation": "Each <code>withColumn()</code> adds a Project node to the logical plan. 15 chained calls = 15 nested nodes. Catalyst does NOT flatten them automatically in all versions. A single <code>select()</code> with all expressions = 1 flat Project node. Faster to compile, clearer to debug."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "This code tries to add a constant <code>currency</code> column but fails. Why?",
+        "code": "result = df.withColumn('currency', 'USD')",
+        "options": [
+          "withColumn() requires .alias() on every expression",
+          "A Python string literal can't be used directly — wrap it with lit(): withColumn('currency', lit('USD'))",
+          "The column name 'currency' conflicts with a reserved SQL keyword",
+          "withColumn() only accepts col() expressions, not any other type"
+        ],
+        "answer": 1,
+        "explanation": "PySpark expects a <code>Column</code> object as the second argument to <code>withColumn()</code>. A bare Python string <code>'USD'</code> is not a Column — it raises <code>AnalysisException</code>. Use <code>lit('USD')</code> to create a literal Column."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: add column 'salary_after_raise' = salary * 1.1\n# Then select only name, salary, salary_after_raise\nresult = df.withColumn('salary_after_raise', ___).select(___)",
-
   "expected": [
-    {"name": "Alice",   "salary": 95000,  "salary_after_raise": 104500.0},
-    {"name": "Bob",     "salary": 62000,  "salary_after_raise": 68200.0},
-    {"name": "Carol",   "salary": 110000, "salary_after_raise": 121000.0},
-    {"name": "David",   "salary": 55000,  "salary_after_raise": 60500.0},
-    {"name": "Eve",     "salary": 70000,  "salary_after_raise": 77000.0},
-    {"name": "Frank",   "salary": 125000, "salary_after_raise": 137500.0},
-    {"name": "Grace",   "salary": 52000,  "salary_after_raise": 57200.0},
-    {"name": "Heidi",   "salary": 88000,  "salary_after_raise": 96800.0},
-    {"name": "Ivan",    "salary": 105000, "salary_after_raise": 115500.0},
-    {"name": "Judy",    "salary": 65000,  "salary_after_raise": 71500.0},
-    {"name": "Karl",    "salary": 115000, "salary_after_raise": 126500.0},
-    {"name": "Laura",   "salary": 92000,  "salary_after_raise": 101200.0},
-    {"name": "Mallory", "salary": 50000,  "salary_after_raise": 55000.0},
-    {"name": "Niaj",    "salary": 75000,  "salary_after_raise": 82500.0},
-    {"name": "Oscar",   "salary": 130000, "salary_after_raise": 143000.0}
+    {
+      "name": "Alice",
+      "salary": 95000,
+      "salary_after_raise": 104500.0
+    },
+    {
+      "name": "Bob",
+      "salary": 62000,
+      "salary_after_raise": 68200.0
+    },
+    {
+      "name": "Carol",
+      "salary": 110000,
+      "salary_after_raise": 121000.0
+    },
+    {
+      "name": "David",
+      "salary": 55000,
+      "salary_after_raise": 60500.0
+    },
+    {
+      "name": "Eve",
+      "salary": 70000,
+      "salary_after_raise": 77000.0
+    },
+    {
+      "name": "Frank",
+      "salary": 125000,
+      "salary_after_raise": 137500.0
+    },
+    {
+      "name": "Grace",
+      "salary": 52000,
+      "salary_after_raise": 57200.0
+    },
+    {
+      "name": "Heidi",
+      "salary": 88000,
+      "salary_after_raise": 96800.0
+    },
+    {
+      "name": "Ivan",
+      "salary": 105000,
+      "salary_after_raise": 115500.0
+    },
+    {
+      "name": "Judy",
+      "salary": 65000,
+      "salary_after_raise": 71500.0
+    },
+    {
+      "name": "Karl",
+      "salary": 115000,
+      "salary_after_raise": 126500.0
+    },
+    {
+      "name": "Laura",
+      "salary": 92000,
+      "salary_after_raise": 101200.0
+    },
+    {
+      "name": "Mallory",
+      "salary": 50000,
+      "salary_after_raise": 55000.0
+    },
+    {
+      "name": "Niaj",
+      "salary": 75000,
+      "salary_after_raise": 82500.0
+    },
+    {
+      "name": "Oscar",
+      "salary": 130000,
+      "salary_after_raise": 143000.0
+    }
   ],
   "hints": [
     "Use df.withColumn('salary_after_raise', df.salary * 1.1) to create the new column.",

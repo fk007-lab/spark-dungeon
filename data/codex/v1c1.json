@@ -1,0 +1,173 @@
+{
+  "id": "v1c1",
+  "volume": "vol1",
+  "volume_title": "Volume I — The Foundations of Spark",
+  "title": "The Spark Architecture",
+  "estimated_time": "15 min",
+  "sections": [
+    {
+      "title": "The Big Picture",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Apache Spark is a <strong>distributed compute engine</strong>. Your Python code runs on one machine (the <em>Driver</em>), but the actual data processing is parallelized across a cluster of <em>Executors</em>. Understanding this boundary — what runs where — is the key to debugging every Spark job you'll ever write."
+        },
+        {
+          "type": "callout",
+          "style": "info",
+          "icon": "🏗️",
+          "content": "<strong>The 5 components you must know:</strong> Driver · DAG Scheduler · Task Scheduler · Cluster Manager · Executors. Every Spark job flows through all five."
+        }
+      ]
+    },
+    {
+      "title": "The Driver",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The <strong>Driver</strong> is your Python process — the machine running your Spark application. It hosts the <code>SparkSession</code>, builds the query plan, and coordinates all execution. The Driver never touches data directly; it only schedules work and collects results."
+        },
+        {
+          "type": "table",
+          "headers": ["Driver Responsibility", "What it means in practice"],
+          "rows": [
+            ["Owns the SparkContext / SparkSession", "One per application — create once, reuse"],
+            ["Builds the logical plan", "Translates your DataFrame API calls into a query tree"],
+            ["Interacts with Cluster Manager", "Requests executor resources (cores, memory)"],
+            ["Collects results via collect()", "Results flow from all executors back to the Driver — can OOM if too large"],
+            ["Broadcasts small tables", "Driver sends a copy of small DataFrames to every executor (broadcast join)"]
+          ]
+        },
+        {
+          "type": "callout",
+          "style": "warning",
+          "icon": "⚠️",
+          "content": "<strong>Never call .collect() on large DataFrames.</strong> collect() pulls ALL rows to the Driver's JVM heap. At MAANG scale (billions of rows) this will OOM the Driver and kill your job. Use <code>.limit(N).collect()</code>, <code>.show()</code>, or write to storage."
+        }
+      ]
+    },
+    {
+      "title": "DAG Scheduler & Task Scheduler",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "When you call an action (like <code>.count()</code> or <code>.write</code>), the Driver's <strong>DAG Scheduler</strong> converts the logical plan into a physical <em>DAG of stages</em>. Each stage is a set of tasks that can run in parallel without a shuffle."
+        },
+        {
+          "type": "text",
+          "content": "The <strong>Task Scheduler</strong> then submits tasks to executors via the Cluster Manager. It tracks task completion, re-submits failed tasks (up to <code>spark.task.maxFailures</code> times), and handles speculative execution for stragglers."
+        },
+        {
+          "type": "table",
+          "headers": ["Component", "Role", "Failure behavior"],
+          "rows": [
+            ["DAG Scheduler", "Cuts DAG into stages at shuffle boundaries", "Resubmits failed stages"],
+            ["Task Scheduler", "Dispatches tasks to executors", "Retries up to maxFailures times"],
+            ["Executor", "Runs tasks, stores shuffle files/cache", "Driver detects heartbeat timeout, reschedules tasks"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Cluster Manager",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The <strong>Cluster Manager</strong> allocates physical resources (nodes, cores, memory) to Spark. Spark supports three cluster managers: <em>YARN</em> (Hadoop), <em>Kubernetes</em> (cloud-native), and <em>Standalone</em> (built-in). At MAANG, you'll primarily use YARN on-prem or Kubernetes on the cloud."
+        },
+        {
+          "type": "table",
+          "headers": ["Cluster Manager", "Used at", "Key trait"],
+          "rows": [
+            ["YARN", "Hadoop clusters (on-prem MAANG)", "Resource negotiation with NodeManager, ApplicationMaster"],
+            ["Kubernetes", "Cloud (AWS EMR on EKS, GCP Dataproc)", "Docker containers, declarative resource requests, autoscaling"],
+            ["Standalone", "Single-machine testing, local[*]", "No external dependency — SparkMaster manages workers"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Executors",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<strong>Executors</strong> are JVM processes running on worker nodes. Each executor has a fixed number of CPU cores and a fixed memory allocation. They run <em>tasks</em> (the unit of work), store shuffle intermediate files, and serve as the Spark in-memory cache."
+        },
+        {
+          "type": "code",
+          "content": "# Executor configuration\nspark = SparkSession.builder \\\n    .config('spark.executor.instances', '10')    # 10 executor JVMs\n    .config('spark.executor.cores', '4')         # 4 cores each = 40 parallel tasks\n    .config('spark.executor.memory', '16g')      # 16 GB heap per executor\n    .config('spark.executor.memoryOverhead', '2g') # off-heap (shuffle buffers, etc)\n    .getOrCreate()"
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "<strong>MAANG rule of thumb for executor sizing:</strong> 4-5 cores per executor (balances parallelism vs HDFS throughput), 4 GB per core for memory. Leave 1 core per node for OS/YARN daemons. Never use 1 executor per node with all cores — HDFS can't handle the concurrent connections."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Driver",
+      "definition": "Your Python process. Hosts SparkSession, builds the plan, coordinates execution. Never processes data directly. Results from <code>collect()</code> return here — can OOM."
+    },
+    {
+      "term": "Executor",
+      "definition": "JVM process on a worker node. Runs tasks, stores shuffle files and cached DataFrames. Fixed cores + memory per executor."
+    },
+    {
+      "term": "DAG Scheduler",
+      "definition": "Converts logical query plan into physical stages. Stage boundaries = shuffle boundaries. Each stage = set of tasks that can run in parallel."
+    },
+    {
+      "term": "Task",
+      "definition": "The smallest unit of work. One task processes one partition. Number of tasks = number of partitions in the stage."
+    },
+    {
+      "term": "Stage",
+      "definition": "A set of tasks with no shuffle between them. Stages are separated by shuffle boundaries (groupBy, join, repartition). Stages within a job can sometimes run in parallel."
+    },
+    {
+      "term": "Cluster Manager",
+      "definition": "Allocates physical resources to Spark. YARN (on-prem Hadoop), Kubernetes (cloud), or Standalone (testing). Separate from Spark itself."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "A Spark job has 3 stages. Stage 1 has 200 tasks, Stage 2 has 200 tasks (after a shuffle), Stage 3 has 1 task (final reduce). Your cluster has 40 executor cores. About how many waves of tasks run in Stage 1?",
+      "options": [
+        "1 wave — all 200 tasks run simultaneously",
+        "5 waves — 40 tasks per wave, 200/40 = 5",
+        "200 waves — one task at a time per core",
+        "It depends on executor memory, not cores"
+      ],
+      "answer": 1,
+      "explanation": "With 40 cores, Spark can run 40 tasks simultaneously. 200 tasks / 40 cores = 5 waves. This is why having more partitions than cores is important — it keeps all cores busy throughout each wave."
+    },
+    {
+      "type": "mcq",
+      "question": "A data engineer calls <code>df.collect()</code> on a DataFrame with 50 billion rows. What happens?",
+      "options": [
+        "Spark automatically samples 1 million rows to protect the Driver",
+        "All 50 billion rows are transferred to the Driver's JVM heap, very likely causing OutOfMemoryError",
+        "Spark writes the result to a temp file and returns a file path",
+        "collect() on DataFrames only returns the schema, not the rows"
+      ],
+      "answer": 1,
+      "explanation": "<code>collect()</code> pulls EVERY row from all executors to the Driver's JVM heap. At 50B rows, this will OOM the Driver (and probably your cluster's networking too). Use <code>.limit(N).collect()</code> for small samples, or <code>.write.parquet(path)</code> for full output."
+    },
+    {
+      "type": "mcq",
+      "question": "Where does a Spark broadcast join place the small table?",
+      "options": [
+        "On the Driver, which all executors query via RPC during the join",
+        "In every executor's JVM heap — a copy per executor",
+        "In HDFS temp storage, shared by all executors via network reads",
+        "In the Cluster Manager memory, dispatched on demand"
+      ],
+      "answer": 1,
+      "explanation": "Broadcast joins send a full copy of the small table to EVERY executor's JVM heap. This eliminates shuffle entirely — each executor joins locally against its in-memory copy. The trade-off: the table must fit in executor memory (configured by <code>spark.sql.autoBroadcastJoinThreshold</code>)."
+    }
+  ]
+}

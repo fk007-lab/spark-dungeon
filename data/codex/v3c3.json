@@ -1,0 +1,119 @@
+{
+  "id": "v3c3",
+  "volume": "vol3",
+  "volume_title": "Volume III — Storage & Formats",
+  "title": "Z-Ordering & Data Skipping",
+  "estimated_time": "12 min",
+  "sections": [
+    {
+      "title": "The Data Locality Problem",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Parquet has per-column min/max statistics per row group. But they only help if the data in each row group has a <em>tight</em> value range for your filter column. If every row group contains all possible values of <code>user_country</code>, no row groups can be skipped. Enter <strong>Z-ordering</strong>: multi-dimensional sorting to cluster related data together."
+        },
+        {
+          "type": "code",
+          "content": "# Without Z-ordering: random distribution\n# └── row_group_0: countries = [US, IN, BR, DE, FR, CN, ...] ← can't skip\n# └── row_group_1: countries = [US, IN, BR, DE, FR, CN, ...] ← can't skip\n\n# With ZORDER BY event_date, country:\n# └── row_group_0: dates=[Jan,Jan,Jan], countries=[US,US,CA]  ← can skip most queries!\n# └── row_group_1: dates=[Jan,Jan,Jan], countries=[DE,FR,GB]  ← skipped for US queries\n# └── row_group_2: dates=[Feb,Feb,Feb], countries=[US,IN,BR]  ← skipped for Jan queries"
+        }
+      ]
+    },
+    {
+      "title": "How Z-Ordering Works",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Z-ordering (Z-order curve / Morton curve) is a space-filling curve that maps multi-dimensional coordinates to a single dimension while preserving locality. Data points near each other in N-D space end up near each other in 1-D storage order. This maximizes data skipping when filtering on multiple columns simultaneously."
+        },
+        {
+          "type": "code",
+          "content": "# Delta OPTIMIZE with ZORDER BY\n# (requires Delta Lake — not vanilla Parquet)\n\n# OPTIMIZE rewrites files to be larger (addresses small file problem too)\n# ZORDER BY clusters data by the given columns\n\nspark.sql(\"\"\"\n    OPTIMIZE events_delta\n    ZORDER BY (event_date, country)\n\"\"\")\n\n# Or using Python DeltaTable API:\nfrom delta.tables import DeltaTable\n\ndt = DeltaTable.forName(spark, 'events_delta')\ndt.optimize().executeZOrderBy('event_date', 'country')\n\n# After Z-ordering, queries like:\n#   WHERE event_date = '2024-01-15' AND country = 'US'\n# can skip 90%+ of files"
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Z-ordering is expensive to run (rewrites all files). Run it on a schedule (nightly/weekly) on partitions that are no longer receiving new data, not on every write."
+        }
+      ]
+    },
+    {
+      "title": "Bloom Filters: The Complement to Z-Ordering",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Z-ordering works well for range queries. For point lookups on high-cardinality columns (e.g., <code>WHERE user_id = 'a8f3c...'</code>), <strong>bloom filters</strong> are more efficient. A bloom filter is stored per column per row group and answers: 'Does this row group definitely NOT contain this value?'"
+        },
+        {
+          "type": "code",
+          "content": "# Enable bloom filters on a Delta table column\nspark.sql(\"\"\"\n    ALTER TABLE events_delta\n    SET TBLPROPERTIES (\n        'delta.dataSkippingNumIndexedCols' = 5,\n        'delta.bloomFilter.columns' = 'user_id,session_id'\n    )\n\"\"\")\n\n# After OPTIMIZE, Spark generates bloom filter indexes per file\n# Point lookups: WHERE user_id = 'abc123'\n# → Spark checks bloom filter → if negative, skips file entirely\n# False positive rate ~1% by default (configurable)"
+        }
+      ]
+    },
+    {
+      "title": "When Z-Ordering Doesn't Help",
+      "blocks": [
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "<strong>Z-ordering limitations:</strong> (1) Effectiveness degrades with more than 3-4 columns — the curve spreads data too broadly. (2) New data written after OPTIMIZE is not Z-ordered — re-run periodically. (3) Doesn't help with aggregations that read all data anyway. (4) Works only with Delta Lake, not vanilla Parquet."
+        },
+        {
+          "type": "table",
+          "headers": ["Use case", "Best approach"],
+          "rows": [
+            ["Range filters on 1-2 columns (dates, regions)", "ZORDER BY + partition by coarse grain (year/month)"],
+            ["Point lookups on high-cardinality IDs", "Bloom filters"],
+            ["Broad aggregations (scan all data)", "Neither — just optimize partition count"],
+            ["New streaming data not yet compacted", "Run OPTIMIZE on completed partitions nightly"]
+          ]
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Z-Order Curve",
+      "glyph": "⚡",
+      "definition": "Space-filling curve (Morton code) that interleaves the bits of multi-dimensional coordinates to produce a 1-D sort order. Data points near each other in N dimensions cluster together in 1-D storage, maximizing file-level data skipping."
+    },
+    {
+      "term": "OPTIMIZE",
+      "glyph": "🔧",
+      "definition": "Delta Lake command that rewrites small files into larger, optimally-sized files (bin-packing). Optionally applies ZORDER BY for data clustering. 'OPTIMIZE my_table ZORDER BY (col1, col2)' does both in one operation."
+    },
+    {
+      "term": "Data Skipping",
+      "glyph": "⏭️",
+      "definition": "Spark reads Delta's min/max column statistics from the transaction log (not the Parquet footer) to determine which files can possibly satisfy a filter. Files where max < filter_value or min > filter_value are skipped without being opened."
+    },
+    {
+      "term": "Bloom Filter",
+      "glyph": "🌸",
+      "definition": "Probabilistic data structure that quickly answers 'definitely not in this file' for point lookups. No false negatives (if value is in file, filter says yes). ~1% false positives (says yes but value isn't there). Complements Z-ordering for high-cardinality ID lookups."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You have a Delta table queried mostly with WHERE product_id = 'P12345' (point lookups on a UUID-like 10M distinct IDs). Should you ZORDER BY product_id or use bloom filters?",
+      "options": [
+        "ZORDER BY product_id — it's always better",
+        "Bloom filters — Z-ordering is poor at point lookups on high-cardinality columns",
+        "Partition by product_id first, then ZORDER",
+        "Neither — point lookups don't benefit from any indexing in Spark"
+      ],
+      "correct": 1,
+      "feedback": "Z-ordering is designed for range queries on correlated columns. For point lookups (equality filters) on high-cardinality columns, bloom filters answer 'does this file contain product_id P12345?' much more efficiently. Z-ordering 10M UUIDs provides negligible locality benefit."
+    },
+    {
+      "question": "You ZORDER your table by (event_date, country). How often should you re-run OPTIMIZE ZORDER?",
+      "options": [
+        "On every write — so all data is always Z-ordered",
+        "Periodically (nightly/weekly) on partitions that are no longer receiving new data",
+        "Once — Z-ordering is permanent",
+        "Never re-run — it auto-updates"
+      ],
+      "correct": 1,
+      "feedback": "New data written after OPTIMIZE is not Z-ordered — it arrives as new small files. Re-run OPTIMIZE on 'closed' partitions (past dates) on a schedule. Running on every write is too expensive; running once means new data is never ordered."
+    }
+  ]
+}

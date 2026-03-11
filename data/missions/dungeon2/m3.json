@@ -10,15 +10,125 @@
   "concept": {
     "explanation": "<code>.agg()</code> can take multiple aggregations at once. <code>F.sum(col)</code> adds up all values in a group. <code>F.avg(col)</code> computes the mean. <code>F.round(expr, n)</code> rounds to <code>n</code> decimal places. Chain them together with commas inside <code>agg()</code>.",
     "example_code": "# Example: total and average price per category\nproducts_df = spark.createDataFrame(\n    [('fruit', 1.5), ('fruit', 2.0), ('veg', 0.8), ('veg', 1.2)],\n    ['category', 'price']\n)\n\nresult = products_df.groupBy('category').agg(\n    F.sum('price').alias('total_price'),\n    F.round(F.avg('price'), 2).alias('avg_price')\n)\n# fruit: total=3.5, avg=1.75\n# veg:   total=2.0, avg=1.0",
-    "output_note": "Wrap F.avg inside F.round(F.avg(...), 2) to control decimal places in the output."
+    "output_note": "Wrap F.avg inside F.round(F.avg(...), 2) to control decimal places in the output.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>unions and deduplication</strong>: <code>union()</code>/<code>unionByName()</code> stacks two DataFrames vertically (like SQL <code>UNION ALL</code>). <code>distinct()</code> removes duplicate rows. <code>dropDuplicates()</code> removes duplicates based on a subset of columns — more flexible and faster than <code>distinct()</code> for targeted dedup."
+      },
+      {
+        "type": "heading",
+        "content": "union() vs unionByName()"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Method",
+          "Column matching",
+          "When to use"
+        ],
+        "rows": [
+          [
+            "<code>union()</code>",
+            "By position (column order)",
+            "Both DataFrames have identical schema in same order"
+          ],
+          [
+            "<code>unionByName()</code>",
+            "By column name",
+            "Schemas have same names but different order — safer"
+          ],
+          [
+            "<code>unionByName(allowMissingColumns=True)</code>",
+            "By name, fills missing with null",
+            "Merging DataFrames where one has extra columns"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "# Stack two DataFrames\ncombined = df_jan.union(df_feb)        # positional — risky if schemas differ\ncombined = df_jan.unionByName(df_feb)  # by name — always safer\n\n# UNION ALL (default) vs UNION DISTINCT\ncombined_all = df_a.union(df_b)             # keeps duplicates (like UNION ALL)\ncombined_distinct = df_a.union(df_b).distinct() # removes duplicates\n\n# dropDuplicates on subset of columns (MAANG dedup pattern)\n# Keep most recent record per user (assuming ordered input)\ndeduped = df.dropDuplicates(['user_id', 'event_date'])"
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>distinct() and dropDuplicates() both trigger a shuffle</strong> — they need to group identical rows from all partitions. At MAANG scale, avoid careless <code>distinct()</code> calls. Instead, use a deterministic key to deduplicate with <code>dropDuplicates(['id'])</code> or window function dedup (rank/row_number + filter)."
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "Window-based dedup pattern for latest record per key:<br/><code>w = Window.partitionBy('user_id').orderBy(desc('event_ts'))<br/>df.withColumn('rn', row_number().over(w)).filter(col('rn') == 1).drop('rn')</code>"
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "union() vs UNION DISTINCT",
+        "definition": "<code>df.union()</code> = SQL <code>UNION ALL</code> — keeps all rows including duplicates. Add <code>.distinct()</code> to get <code>UNION DISTINCT</code> behavior."
+      },
+      {
+        "term": "unionByName()",
+        "definition": "Safer than union(): matches columns by name instead of position. Use when schemas may have different column ordering. Add <code>allowMissingColumns=True</code> for partial schema overlap."
+      },
+      {
+        "term": "dropDuplicates()",
+        "definition": "<code>df.dropDuplicates(['col1', 'col2'])</code> removes rows where the subset matches. More efficient than <code>distinct()</code> when you only care about certain columns. Both trigger a shuffle."
+      },
+      {
+        "term": "Window Dedup",
+        "definition": "Use <code>row_number().over(Window.partitionBy('id').orderBy(desc('ts')))</code> + filter for deterministic last-record-wins deduplication without risking arbitrary row selection."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "Two DataFrames — df_2023 has columns [user_id, amount, region] and df_2024 has columns [amount, user_id, region]. You run <code>df_2023.union(df_2024)</code>. What happens?",
+        "options": [
+          "Spark matches columns by name — result is correct",
+          "Spark matches columns by position — amount from df_2024 maps to user_id column, corrupting data silently",
+          "Spark throws a schema mismatch error",
+          "Spark automatically sorts columns alphabetically before union"
+        ],
+        "answer": 1,
+        "explanation": "<code>union()</code> matches by column position, not name. df_2024's first column (amount) maps to df_2023's first column (user_id) — silent data corruption. Always use <code>unionByName()</code> when column order might differ. This is a real production bug that has caused data incidents."
+      },
+      {
+        "type": "mcq",
+        "question": "You have a 5-billion row events table and need to deduplicate keeping the latest event per user_id. Which is the most efficient?",
+        "options": [
+          "<code>df.distinct()</code>",
+          "<code>df.dropDuplicates(['user_id'])</code>",
+          "Window: <code>row_number().over(Window.partitionBy('user_id').orderBy(desc('event_ts')))</code> then filter <code>rn==1</code>",
+          "<code>df.groupBy('user_id').agg(max('event_ts'))</code> then rejoin"
+        ],
+        "answer": 2,
+        "explanation": "Option B (<code>dropDuplicates(['user_id'])</code>) keeps an arbitrary row per user — not necessarily the latest. Option D requires a join (two shuffles). Option C uses one shuffle (for the window partition) and is deterministic: it always keeps the row with the latest event_ts. This is the MAANG standard dedup pattern."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: group by department\n# Compute total_salary (sum) and avg_salary (avg, rounded to 2 dp)\n# Order by department ascending\nresult = (\n    df.groupBy('department')\n    .agg(\n        ___,\n        ___\n    )\n    .orderBy(___)\n)",
-
   "expected": [
-    {"department": "Engineering", "total_salary": 575000, "avg_salary": 115000.0},
-    {"department": "Finance",     "total_salary": 285000, "avg_salary": 95000.0},
-    {"department": "HR",          "total_salary": 157000, "avg_salary": 52333.33},
-    {"department": "Marketing",   "total_salary": 272000, "avg_salary": 68000.0}
+    {
+      "department": "Engineering",
+      "total_salary": 575000,
+      "avg_salary": 115000.0
+    },
+    {
+      "department": "Finance",
+      "total_salary": 285000,
+      "avg_salary": 95000.0
+    },
+    {
+      "department": "HR",
+      "total_salary": 157000,
+      "avg_salary": 52333.33
+    },
+    {
+      "department": "Marketing",
+      "total_salary": 272000,
+      "avg_salary": 68000.0
+    }
   ],
   "hints": [
     "Use F.sum('salary').alias('total_salary') and F.avg('salary').alias('avg_salary') inside .agg()",

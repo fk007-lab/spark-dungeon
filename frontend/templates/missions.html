@@ -8,6 +8,33 @@
   <p class="subtitle">{{ dungeon.description }}</p>
 </div>
 
+{% if dungeon.theory_scroll %}
+<div class="theory-scroll-wrap">
+  <button class="theory-scroll-toggle" onclick="toggleScroll(this)">
+    <span class="ts-icon">▶</span> 📜 Study the Tome — Quick Reference
+  </button>
+  <div class="theory-scroll-body" id="dungeon-theory-body">
+    {% for block in dungeon.theory_scroll %}
+      {% if block.type == "text" %}
+        <p class="theory-text" style="margin:.4rem 0">{{ block.content | safe }}</p>
+      {% elif block.type == "table" %}
+        <div class="table-scroll" style="margin:.6rem 0">
+          <table class="theory-table">
+            <thead><tr>{% for h in block.headers %}<th>{{ h | safe }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in block.rows %}<tr>{% for cell in row %}<td>{{ cell | safe }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table>
+        </div>
+      {% elif block.type == "callout" %}
+        <div class="theory-callout theory-callout-{{ block.style | default('info') }}" style="margin:.6rem 0">
+          <span class="callout-icon">{{ block.icon | default('💡') }}</span>
+          <span>{{ block.content | safe }}</span>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <div class="mission-list">
   {% for mission in missions %}
   <div class="mission-row status-{{ mission.status }}">
@@ -30,4 +57,14 @@
   </div>
   {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleScroll(btn) {
+  btn.classList.toggle('open');
+  const body = document.getElementById('dungeon-theory-body');
+  body.classList.toggle('open');
+}
+</script>
 {% endblock %}

@@ -1,0 +1,118 @@
+{
+  "id": "v3c4",
+  "volume": "vol3",
+  "volume_title": "Volume III — Storage & Formats",
+  "title": "Small File Problem & Compaction",
+  "estimated_time": "13 min",
+  "sections": [
+    {
+      "title": "Why Small Files Are Catastrophic",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The small file problem is one of the most common performance killers at scale. A streaming pipeline writing every minute creates 1440 files/day per partition. After one year: 500,000+ files in a single directory."
+        },
+        {
+          "type": "table",
+          "headers": ["Impact", "Mechanism", "Problem scale"],
+          "rows": [
+            ["NameNode pressure (HDFS)", "Each file = one NameNode inode. 150 bytes of RAM per inode.", "100M files = 15 GB NameNode RAM just for metadata"],
+            ["S3 LIST API cost", "S3 LIST is expensive and paginated — listing 500K files takes seconds + API calls", "Slow job startup even before any data is read"],
+            ["Task overhead", "Spark creates one task per file (or per N bytes). Too many tasks = driver OOM + scheduling overhead", "1M files = 1M tasks — driver heap exhaustion"],
+            ["Inefficient reads", "Each file has a Parquet footer read (round trip). 10K files = 10K metadata reads.", "Minutes of overhead before first row is processed"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "coalesce() vs repartition() at Write Time",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The simplest fix: control the number of output files by adjusting partition count before writing."
+        },
+        {
+          "type": "code",
+          "content": "# coalesce(N) — reduce partitions WITHOUT a full shuffle\n# Works by combining adjacent partitions → fast but can create imbalanced files\ndf.coalesce(10).write.parquet('s3://bucket/output/')\n# → 10 output files (may be unequal sizes)\n\n# repartition(N) — full shuffle → balanced files\ndf.repartition(10).write.parquet('s3://bucket/output/')\n# → 10 equally-sized files (but costs a shuffle)\n\n# repartition by column — one file per partition value group\ndf.repartition('country').write \\\n  .partitionBy('country') \\\n  .parquet('s3://bucket/output/')\n# → One file per distinct country (may still have many files per country partition)\n\n# For final writes where file count matters more than sort order:\n# coalesce is preferred (no shuffle cost)\n# For skewed data that needs balancing: repartition\n\n# Rule of thumb: aim for 128-512 MB files for Parquet\ntarget_file_size_mb = 256\nnum_partitions = max(1, int(df_size_mb / target_file_size_mb))\ndf.coalesce(num_partitions).write.parquet('...')"
+        }
+      ]
+    },
+    {
+      "title": "Delta OPTIMIZE — Bin-Packing",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Delta Lake's <code>OPTIMIZE</code> command performs bin-packing: it groups small files together and rewrites them as larger files up to the target file size (default 1 GB). Unlike coalesce/repartition, OPTIMIZE is deterministic, atomic, and runs in the background without blocking reads."
+        },
+        {
+          "type": "code",
+          "content": "# Compact the entire table\nspark.sql('OPTIMIZE my_delta_table')\n\n# Compact only a specific partition (efficient — only touches changed data)\nspark.sql(\"\"\"\n    OPTIMIZE my_delta_table\n    WHERE dt = '2024-01-15'\n\"\"\")\n\n# Configure target file size (default 1 GB = 1073741824 bytes)\n# For frequently-queried tables, 128-256 MB is often better\nspark.conf.set('spark.databricks.delta.optimize.maxFileSize', 128 * 1024 * 1024)\n\n# After OPTIMIZE, clean up old small files (they're still in _delta_log as 'removed')\n# but still on disk — vacuum removes them\nspark.sql('VACUUM my_delta_table RETAIN 168 HOURS')  # keep 7 days history"
+        }
+      ]
+    },
+    {
+      "title": "Auto-Optimize & Auto-Compact (Databricks)",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "On Databricks, Delta tables can be configured to optimize automatically. This avoids the need for scheduled OPTIMIZE jobs."
+        },
+        {
+          "type": "code",
+          "content": "# Enable auto-optimize on a table\nspark.sql(\"\"\"\n    ALTER TABLE my_delta_table\n    SET TBLPROPERTIES (\n        'delta.autoOptimize.optimizeWrite' = 'true',   -- coalesce small writes before landing\n        'delta.autoOptimize.autoCompact'   = 'true'    -- compact after each write\n    )\n\"\"\")\n\n# optimizeWrite: batches the write into fewer, larger files before committing\n# autoCompact: after each write, runs a background OPTIMIZE on recently-written files\n\n# Check file sizes after compaction\nspark.sql(\"\"\"\n    SELECT file_name, size_bytes\n    FROM (DESCRIBE DETAIL my_delta_table)\n\"\"\")"
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Interview answer:</strong> Small file problem → three solutions: (1) coalesce/repartition before writing, (2) Delta OPTIMIZE (bin-packing + optional ZORDER), (3) auto-optimize properties on the table. In prod, use all three in layers."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Bin-Packing",
+      "glyph": "📦",
+      "definition": "Delta OPTIMIZE algorithm: groups small files into bins up to the target size and rewrites them as new larger files. Atomic — the transaction log records removed small files and new large files atomically. Old files remain until VACUUM."
+    },
+    {
+      "term": "coalesce(N)",
+      "glyph": "🗜️",
+      "definition": "Reduces partition count WITHOUT a full shuffle by combining adjacent partitions. Cheap — no network transfer. Produces N output files but potentially unbalanced sizes. Preferred over repartition() for final write control."
+    },
+    {
+      "term": "VACUUM",
+      "glyph": "🧹",
+      "definition": "Delta command that physically deletes data files that are no longer referenced by the transaction log (old versions, files removed by OPTIMIZE). Default: retains 7 days (168 hours) for time travel. Safe to vacuum older than retention period."
+    },
+    {
+      "term": "optimizeWrite",
+      "glyph": "✍️",
+      "definition": "Delta table property (delta.autoOptimize.optimizeWrite). When true, Spark uses a larger target file size when writing, automatically coalescing small output files before committing the transaction. Avoids creating small files in the first place."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "A streaming job writes to a Delta table every 2 minutes, creating ~30 small files per write. After 1 week: 15,000 small files. Queries are slow at startup. What's the most operationally effective fix?",
+      "options": [
+        "Increase spark.sql.shuffle.partitions to reduce files",
+        "Schedule a nightly OPTIMIZE on completed date partitions",
+        "Use VACUUM every hour to delete old files",
+        "Reduce the streaming trigger interval to once per hour"
+      ],
+      "correct": 1,
+      "feedback": "Scheduled OPTIMIZE compacts small files via bin-packing and is atomic + non-blocking. VACUUM deletes old files but doesn't compact. Reducing trigger interval lowers throughput. shuffle.partitions affects shuffles not writes. OPTIMIZE nightly on closed partitions is the standard production pattern."
+    },
+    {
+      "question": "You have a batch job that produces a 100 GB output DataFrame. You want exactly 100 output Parquet files of equal size. Which is better: coalesce(100) or repartition(100)?",
+      "options": [
+        "coalesce(100) — no shuffle, same result",
+        "repartition(100) — full shuffle guarantees balanced 1 GB files",
+        "Both produce identical output",
+        "Neither — use df.write.option('maxRecordsPerFile', N)"
+      ],
+      "correct": 1,
+      "feedback": "repartition(100) does a full hash-based shuffle distributing rows evenly across 100 partitions → 100 roughly equal 1 GB files. coalesce(100) just merges adjacent partitions without shuffling → may produce very unbalanced files if the upstream partitioning was skewed."
+    }
+  ]
+}

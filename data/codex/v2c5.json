@@ -1,0 +1,136 @@
+{
+  "id": "v2c5",
+  "volume": "vol2",
+  "volume_title": "Volume II — DataFrames & Spark SQL",
+  "title": "Window Functions Mastery",
+  "estimated_time": "20 min",
+  "sections": [
+    {
+      "title": "WindowSpec Anatomy",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A window function computes a result <em>per row</em> based on a set of rows relative to the current row — without collapsing the DataFrame like groupBy does. Every window function requires a <code>WindowSpec</code> with three optional clauses."
+        },
+        {
+          "type": "table",
+          "headers": ["Clause", "Method", "Effect"],
+          "rows": [
+            ["PARTITION BY", "<code>partitionBy('col')</code>", "Divide rows into independent windows (like GROUP BY but without collapsing)"],
+            ["ORDER BY", "<code>orderBy('col')</code>", "Sort rows within each partition — required for ranking and LAG/LEAD"],
+            ["FRAME", "<code>rowsBetween(start, end)</code> or <code>rangeBetween(start, end)</code>", "Subset of rows within the partition relative to current row"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "from pyspark.sql.window import Window\nimport pyspark.sql.functions as F\n\n# Full WindowSpec example\nw = (\n    Window\n    .partitionBy('region')         # separate window per region\n    .orderBy(F.col('revenue').desc())  # order within each window\n    .rowsBetween(Window.unboundedPreceding, Window.currentRow)  # frame\n)\n\n# Apply a window function\ndf.withColumn('running_total', F.sum('revenue').over(w))"
+        }
+      ]
+    },
+    {
+      "title": "Frame Types: ROWS vs RANGE",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The frame determines which rows are included in the computation. ROWS uses physical offset (by position); RANGE uses logical offset (by value). The difference matters when there are ties in the ORDER BY column."
+        },
+        {
+          "type": "table",
+          "headers": ["Frame type", "What 'current row' means", "Handles ties"],
+          "rows": [
+            ["<code>rowsBetween()</code>", "Positional offset — current row is exactly this one row", "Each tied row gets a different frame"],
+            ["<code>rangeBetween()</code>", "Value offset — all rows with the same ORDER BY value as current row", "All tied rows share the same frame — same result"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# Common frame boundaries\nunboundedPreceding = Window.unboundedPreceding  # start of partition\nunboundedFollowing = Window.unboundedFollowing  # end of partition\ncurrentRow = Window.currentRow\n\n# Running total (start to current)\nrunning_w = Window.partitionBy('region').orderBy('month') \\\n                  .rowsBetween(Window.unboundedPreceding, 0)\n\n# Trailing 3-row moving average\nma3_w = Window.partitionBy('employee_id').orderBy('month') \\\n              .rowsBetween(-2, 0)  # current row + 2 preceding\n\n# Full partition (same as groupBy but keeps all rows)\nfull_w = Window.partitionBy('region').rowsBetween(\n    Window.unboundedPreceding, Window.unboundedFollowing\n)"
+        }
+      ]
+    },
+    {
+      "title": "The Window Function Toolkit",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": ["Function", "Requires orderBy?", "Use case"],
+          "rows": [
+            ["<code>row_number()</code>", "Yes", "Unique sequential index — no ties. Top-N per group patterns."],
+            ["<code>rank()</code>", "Yes", "Rank with gaps on ties (1,1,3,4). Like sports rankings."],
+            ["<code>dense_rank()</code>", "Yes", "Rank without gaps (1,1,2,3). Like academic rankings."],
+            ["<code>lag(col, n)</code>", "Yes", "Value N rows before current row. Month-over-month deltas."],
+            ["<code>lead(col, n)</code>", "Yes", "Value N rows after current row. Next-event prediction."],
+            ["<code>ntile(k)</code>", "Yes", "Divide partition into k equal buckets. Quartile analysis."],
+            ["<code>percent_rank()</code>", "Yes", "Percentile rank: (rank - 1) / (totalRows - 1). 0.0 to 1.0."],
+            ["<code>sum() / avg()</code>", "Optional", "Running totals, moving averages with frame clause."],
+            ["<code>first() / last()</code>", "Optional", "First/last value in partition or frame. Fill-forward pattern."]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Sessionization with Window Functions",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "One of the most powerful window patterns: detecting session boundaries in event logs. A new session starts when the gap between two events exceeds a threshold. This is a favourite MAANG interview question."
+        },
+        {
+          "type": "code",
+          "content": "# Events: user_id, event_time (unix seconds)\n# A new session starts if gap > 30 minutes (1800 seconds)\n\nw = Window.partitionBy('user_id').orderBy('event_time')\n\nevents_with_sessions = (\n    events_df\n    # Time since previous event for this user\n    .withColumn('prev_time', F.lag('event_time', 1).over(w))\n    .withColumn('gap', F.col('event_time') - F.col('prev_time'))\n    # Flag new session when gap > 1800 or no previous event\n    .withColumn('is_new_session',\n        (F.col('gap') > 1800) | F.col('gap').isNull()\n    )\n    # Cumulative count of new session flags = session ID\n    .withColumn('session_id',\n        F.sum(F.col('is_new_session').cast('int')).over(\n            w.rowsBetween(Window.unboundedPreceding, 0)\n        )\n    )\n)"
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Interview pattern:</strong> Sessionization = LAG() to find gaps + cumulative SUM() of gap flags. Memorize this — it appears in Meta/Google/Netflix DE interviews."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "partitionBy()",
+      "glyph": "🗂️",
+      "definition": "Divides rows into independent sub-groups for window computation. Like GROUP BY but doesn't collapse rows. Each partition is processed independently — rows from different partitions never interact."
+    },
+    {
+      "term": "rowsBetween()",
+      "glyph": "↕️",
+      "definition": "Defines the window frame by physical row offset. rowsBetween(-2, 0) = current row + 2 preceding rows. rowsBetween(unboundedPreceding, 0) = all rows from partition start to current = running total."
+    },
+    {
+      "term": "dense_rank()",
+      "glyph": "🥇",
+      "definition": "Ranks rows within a partition, NO gaps when ties occur. Tied rows share a rank, next distinct rank is rank+1. rank() skips numbers after ties. dense_rank() doesn't. Usage: .withColumn('r', F.dense_rank().over(w))"
+    },
+    {
+      "term": "lag(col, n)",
+      "glyph": "⏪",
+      "definition": "Returns the value of 'col' from n rows BEFORE the current row within the partition. Default n=1. Returns null for the first n rows. Use for month-over-month change: revenue - lag(revenue,1). Opposite: lead()."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You need to label each employee's monthly record with their rank within their region by revenue. When two employees tie on revenue, you want the SAME rank and the next rank to skip a number. Which function?",
+      "options": [
+        "row_number()",
+        "dense_rank()",
+        "rank()",
+        "ntile()"
+      ],
+      "correct": 2,
+      "feedback": "rank() gives the same rank to tied rows and skips the next number (1, 1, 3, 4). dense_rank() also gives tied rows the same rank but doesn't skip (1, 1, 2, 3). row_number() never ties."
+    },
+    {
+      "question": "What is the difference between rowsBetween(unboundedPreceding, 0) and rangeBetween(unboundedPreceding, 0)?",
+      "options": [
+        "No difference — they are identical",
+        "rowsBetween uses physical position; rangeBetween uses value. With ties in ORDER BY, rangeBetween includes all tied rows in the frame",
+        "rowsBetween is for numeric columns; rangeBetween is for dates",
+        "rangeBetween is faster because it uses binary search"
+      ],
+      "correct": 1,
+      "feedback": "rowsBetween counts by position — the frame ends at this exact row. rangeBetween counts by value — if multiple rows have the same ORDER BY value as current row, all of them are included. This affects running totals with ties."
+    }
+  ]
+}

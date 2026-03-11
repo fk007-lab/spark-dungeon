@@ -10,26 +10,166 @@
   "concept": {
     "explanation": "<code>select()</code> picks specific columns from a DataFrame — like choosing which columns to show in a SQL SELECT. You can pass column names as strings. Everything else is dropped from the result.",
     "example_code": "# Example: load a fruits table and select only name and price\nfruits_df = spark.createDataFrame(\n    [(1, 'Apple', 1.5, 'red'), (2, 'Banana', 0.8, 'yellow')],\n    ['id', 'name', 'price', 'color']\n)\n\n# Select only name and price — drop id and color\nresult = fruits_df.select('name', 'price')\n# result: name | price",
-    "output_note": "Only the columns named inside select() appear in the output. All other columns are excluded."
+    "output_note": "Only the columns named inside select() appear in the output. All other columns are excluded.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>select()</strong> is the most fundamental DataFrame operation. It projects a subset of columns — equivalent to <code>SELECT col1, col2 FROM table</code> in SQL. Under the hood Spark applies <em>column pruning</em> at the physical plan level, meaning only the columns you request are read from disk (Parquet or ORC skip the rest entirely)."
+      },
+      {
+        "type": "heading",
+        "content": "Three ways to select columns"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Syntax",
+          "When to use",
+          "Example"
+        ],
+        "rows": [
+          [
+            "<code>df.select('name', 'salary')</code>",
+            "Simple column names (string)",
+            "Most common, readable"
+          ],
+          [
+            "<code>df.select(df.name, df.salary)</code>",
+            "Column attribute (avoids typos)",
+            "Useful in IDE with autocomplete"
+          ],
+          [
+            "<code>df.select(col('name'), col('salary'))</code>",
+            "Complex expressions, renaming, functions",
+            "<code>col('salary') * 1.1</code>"
+          ]
+        ]
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "In PySpark <strong>column names are case-sensitive by default</strong> for programmatic access (<code>col()</code> / attribute), but Spark SQL is case-insensitive. Always confirm source column names with <code>df.printSchema()</code>."
+      },
+      {
+        "type": "code",
+        "content": "# Column pruning example — Parquet skips unneeded columns\ndf = spark.read.parquet('s3://bucket/employees/')\n# Only 'name' and 'salary' row-groups are read from disk:\nresult = df.select('name', 'salary')\n\n# You can also pass a Python list:\ncols = ['name', 'salary']\nresult = df.select(*cols)"
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "At MAANG scale, column pruning via <code>select()</code> early in your pipeline can reduce shuffle bytes and executor memory pressure dramatically. Always project down before joining or aggregating."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "Column Pruning",
+        "definition": "Spark's optimizer removes columns not needed downstream. Triggered by <code>select()</code> — critical for wide Parquet tables."
+      },
+      {
+        "term": "Projection",
+        "definition": "The relational algebra term for selecting a subset of columns. <code>select()</code> compiles to a Projection node in the logical plan."
+      },
+      {
+        "term": "col()",
+        "definition": "Factory function from <code>pyspark.sql.functions</code> that creates a <code>Column</code> object. Needed for expressions: <code>col('price') * 1.2</code>."
+      },
+      {
+        "term": "Catalyst Optimizer",
+        "definition": "Spark's query optimizer that rewrites your logical plan into an optimized physical plan — column pruning, predicate pushdown, constant folding."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "You have a Parquet table with 80 columns. You run <code>df.select('user_id', 'event_type')</code> on a Spark cluster. What actually happens at the storage layer?",
+        "options": [
+          "All 80 columns are read from disk, then the other 78 are dropped in memory",
+          "Only the 2 requested columns are read from Parquet row groups, the rest are skipped entirely",
+          "Spark reads a random sample of columns to estimate statistics",
+          "The query fails unless you also call .cache() first"
+        ],
+        "answer": 1,
+        "explanation": "Parquet is a columnar format. Spark's Catalyst optimizer pushes column pruning down to the reader — only the requested columns' row groups are deserialized. This is one of the biggest perf wins when working with wide tables."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "This code should select <code>name</code> and <code>salary</code> but crashes. Find the bug:",
+        "code": "from pyspark.sql.functions import col\nresult = df.select(col['name'], col['salary'])",
+        "options": [
+          "col() should be imported from pyspark.sql instead",
+          "col() is a function — use col('name'), not col['name'] (no square brackets)",
+          "You must use df.name attribute syntax, col() can't be used here",
+          "select() only accepts string literals, not col() objects"
+        ],
+        "answer": 1,
+        "explanation": "<code>col</code> is a function, not a dict. Use <code>col('name')</code> with parentheses. Square brackets would raise <code>TypeError: 'function' object is not subscriptable</code>."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: select only the 'name' and 'salary' columns\nresult = df.select(___)",
-
   "expected": [
-    {"name": "Alice",   "salary": 95000},
-    {"name": "Bob",     "salary": 62000},
-    {"name": "Carol",   "salary": 110000},
-    {"name": "David",   "salary": 55000},
-    {"name": "Eve",     "salary": 70000},
-    {"name": "Frank",   "salary": 125000},
-    {"name": "Grace",   "salary": 52000},
-    {"name": "Heidi",   "salary": 88000},
-    {"name": "Ivan",    "salary": 105000},
-    {"name": "Judy",    "salary": 65000},
-    {"name": "Karl",    "salary": 115000},
-    {"name": "Laura",   "salary": 92000},
-    {"name": "Mallory", "salary": 50000},
-    {"name": "Niaj",    "salary": 75000},
-    {"name": "Oscar",   "salary": 130000}
+    {
+      "name": "Alice",
+      "salary": 95000
+    },
+    {
+      "name": "Bob",
+      "salary": 62000
+    },
+    {
+      "name": "Carol",
+      "salary": 110000
+    },
+    {
+      "name": "David",
+      "salary": 55000
+    },
+    {
+      "name": "Eve",
+      "salary": 70000
+    },
+    {
+      "name": "Frank",
+      "salary": 125000
+    },
+    {
+      "name": "Grace",
+      "salary": 52000
+    },
+    {
+      "name": "Heidi",
+      "salary": 88000
+    },
+    {
+      "name": "Ivan",
+      "salary": 105000
+    },
+    {
+      "name": "Judy",
+      "salary": 65000
+    },
+    {
+      "name": "Karl",
+      "salary": 115000
+    },
+    {
+      "name": "Laura",
+      "salary": 92000
+    },
+    {
+      "name": "Mallory",
+      "salary": 50000
+    },
+    {
+      "name": "Niaj",
+      "salary": 75000
+    },
+    {
+      "name": "Oscar",
+      "salary": 130000
+    }
   ],
   "hints": [
     "Use df.select('name', 'salary') — pass column names as strings.",

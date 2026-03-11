@@ -1,0 +1,124 @@
+{
+  "id": "v4c3",
+  "volume": "vol4",
+  "volume_title": "Volume IV — Streaming & Kafka",
+  "title": "Stateful Streaming & Watermarks",
+  "estimated_time": "19 min",
+  "sections": [
+    {
+      "title": "Stateful vs Stateless Operations",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Streaming operations fall into two categories. Understanding which operations require state — and how much — is critical for avoiding OOMs in long-running streaming jobs."
+        },
+        {
+          "type": "table",
+          "headers": ["Operation", "Type", "Spark keeps state?", "Example"],
+          "rows": [
+            ["filter(), map(), select()", "Stateless — row-by-row", "No", "Parse JSON, mask PII, enrich with broadcast"],
+            ["groupBy().count()", "Stateful — global aggregate", "Yes — running count per key", "Total events per user since stream start"],
+            ["groupBy(window(...)).sum()", "Stateful — windowed aggregate", "Yes — partial sums per window per key", "Revenue per region per 5-min window"],
+            ["join(streaming_df)", "Stateful — stream-stream join", "Yes — buffer both sides until match", "Match click events with purchase events"],
+            ["dropDuplicates()", "Stateful — deduplication", "Yes — seen keys set", "Deduplicate events with same event_id"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Stateful operations accumulate state in the <strong>state store</strong> (RocksDB on disk, or memory). Without a watermark or TTL, state grows forever. This is the #1 cause of streaming OOMs."
+        }
+      ]
+    },
+    {
+      "title": "Event Time vs Processing Time",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Event time is when the event <em>happened</em> (embedded in the message). Processing time is when Spark <em>received</em> it. For accurate analytics — especially with late data — always use event time."
+        },
+        {
+          "type": "code",
+          "content": "# Processing time window (based on when Spark sees the record)\ndf.groupBy(\n    F.window(F.current_timestamp(), '5 minutes')  # based on now\n).count()\n# Problem: a delayed message from 3 minutes ago gets counted in current window, not correct window\n\n# Event time window (based on timestamp IN the message) ✅\ndf_with_ts = df.withColumn('event_ts', F.to_timestamp('event_time_str', 'yyyy-MM-dd HH:mm:ss'))\n\ndf_with_ts.groupBy(\n    F.window('event_ts', '5 minutes')  # based on event timestamp\n).count()\n# Now records are grouped by when the event happened, not when Spark processed them"
+        }
+      ]
+    },
+    {
+      "title": "Watermarks: Handling Late Data",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A <strong>watermark</strong> tells Spark: 'Events that are more than X time behind the latest event time are considered late and will be dropped.' This allows Spark to safely close old windows and clean up state."
+        },
+        {
+          "type": "code",
+          "content": "# Without watermark: state accumulates forever (every window stays open)\ndf.groupBy(F.window('event_ts', '10 minutes')).count()\n\n# With watermark: windows older than (max_seen_event_time - 10 minutes) are closed\ndf_with_wm = df.withWatermark('event_ts', '10 minutes')  # tolerate up to 10 min late\n\nwindowed_counts = df_with_wm.groupBy(\n    F.window('event_ts', '10 minutes', '5 minutes'),  # 10-min window, slide every 5 min\n    'country'\n).count()\n\n# Spark tracks: current_watermark = max(event_ts) - 10_minutes\n# Windows older than current_watermark: state is finalized and output is produced\n# Windows newer than current_watermark: still open, accumulating\n\n# Example timeline:\n# event_ts=12:00 → max=12:00, watermark=11:50. Windows ≤11:50 closed.\n# event_ts=12:08 → max=12:08, watermark=11:58. Windows ≤11:58 closed.\n# Late event at 11:55 → below watermark 11:58 → DROPPED"
+        }
+      ]
+    },
+    {
+      "title": "Window Types",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "# Tumbling window: fixed non-overlapping intervals\n# [12:00-12:05), [12:05-12:10), [12:10-12:15)...\nF.window('event_ts', '5 minutes')\n\n# Sliding window: fixed intervals with overlap\n# [12:00-12:10), [12:05-12:15), [12:10-12:20)...\n# Event at 12:07 falls in BOTH first and second windows\nF.window('event_ts', '10 minutes', '5 minutes')  # size, slide\n\n# Session window (Spark 3.2+): dynamic size — expands if within gap duration\n# New session starts if gap between events > 10 minutes\nF.session_window('event_ts', '10 minutes'))"
+        },
+        {
+          "type": "table",
+          "headers": ["Window type", "When to use"],
+          "rows": [
+            ["Tumbling", "Non-overlapping bucketing: hourly/daily aggregates, batch-like reports"],
+            ["Sliding", "Moving averages, overlapping periods (1-hour window every 15 min)"],
+            ["Session", "User session analytics — group events based on activity gaps"]
+          ]
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Watermark",
+      "glyph": "💧",
+      "definition": "Threshold telling Spark how late data can arrive. withWatermark('ts', '10 minutes') means: if an event has event_ts more than 10 minutes behind the max seen event_ts, drop it. Enables state cleanup and append mode output for windowed aggregations."
+    },
+    {
+      "term": "State Store",
+      "glyph": "🗃️",
+      "definition": "Where Spark persists intermediate state for stateful streaming operations (aggregation partial sums, deduplication keys, join buffers). Backed by RocksDB (Databricks) or in-memory HashMap. Checkpointed to durable storage every micro-batch."
+    },
+    {
+      "term": "Event Time",
+      "glyph": "🕐",
+      "definition": "The timestamp embedded in the message payload representing when the event actually occurred. Use this (not processing time) for accurate window aggregations. Extract with F.to_timestamp() or .withWatermark() for stream operations."
+    },
+    {
+      "term": "Session Window",
+      "glyph": "👤",
+      "definition": "Dynamic window that extends as long as events keep arriving within a gap threshold. Unlike tumbling/sliding windows, session windows have variable size. F.session_window('ts', '30 minutes') — new session after 30 min of inactivity."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You use withWatermark('event_ts', '15 minutes') and the latest event so far is at 14:30. An event arrives with event_ts = 14:10. Is it processed or dropped?",
+      "options": [
+        "Processed — it's within the watermark threshold",
+        "Dropped — 14:10 is more than 15 minutes behind 14:30",
+        "Processed but assigned to the wrong window",
+        "Causes an exception"
+      ],
+      "correct": 0,
+      "feedback": "Watermark = max_seen_ts - watermark_delay = 14:30 - 15 min = 14:15. The event at 14:10 is BEFORE the watermark 14:15, so it IS dropped. If the event was at 14:20 (after 14:15), it would be processed. Only events older than (max_seen - delay) are dropped."
+    },
+    {
+      "question": "Your streaming job's state store grows without bound and eventually causes OOMs. You're using groupBy(window('event_ts', '1 hour')).count(). What fixes this?",
+      "options": [
+        "Increase executor memory",
+        "Add withWatermark('event_ts', '2 hours') before the groupBy",
+        "Switch to append output mode",
+        "Use complete output mode instead"
+      ],
+      "correct": 1,
+      "feedback": "Without a watermark, Spark never closes old windows — state accumulates indefinitely. Adding withWatermark allows Spark to finalize and clean up windows that are older than (max_event_ts - watermark). This bounds state size."
+    }
+  ]
+}

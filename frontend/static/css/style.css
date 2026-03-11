@@ -390,3 +390,254 @@ a:hover { color: var(--primary-h); }
   padding: .3rem .65rem; border-radius: 3px; cursor: pointer; transition: all .15s;
 }
 .btn-reset-code:hover { border-color: var(--danger); color: #fc8585; }
+
+/* ══════════════════════════════════════════════════
+   TWO-TAB CONCEPT PANEL – TABS
+   ══════════════════════════════════════════════════ */
+.concept-tabs {
+  display: flex; gap: .4rem;
+}
+.concept-tab {
+  font-family: var(--font-heading);
+  font-size: .72rem; font-weight: 700; letter-spacing: .06em;
+  padding: .35rem .85rem; border-radius: 4px 4px 0 0;
+  border: 1px solid transparent; border-bottom: none;
+  background: transparent; color: var(--text-muted);
+  cursor: pointer; transition: all .15s;
+}
+.concept-tab:hover { color: var(--primary); }
+.concept-tab.active {
+  background: linear-gradient(180deg, #2b1c08 0%, var(--surface) 100%);
+  border-color: var(--border-hi); color: var(--gold);
+  border-bottom-color: var(--surface);
+}
+.concept-tab-pane { display: none; }
+.concept-tab-pane.active { display: block; }
+
+/* ══════════════════════════════════════════════════
+   THEORY BODY BLOCKS
+   ══════════════════════════════════════════════════ */
+.theory-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.theory-text { font-size: .88rem; line-height: 1.85; color: var(--text); }
+.theory-text code, .theory-callout code {
+  font-family: var(--mono); background: var(--surface2);
+  color: var(--primary); padding: .1em .35em;
+  border-radius: 3px; font-size: .85em; border: 1px solid var(--border);
+}
+.theory-text strong { color: var(--gold); }
+.theory-heading {
+  font-family: var(--font-heading);
+  font-size: .85rem; font-weight: 700;
+  color: var(--primary); letter-spacing: .08em;
+  text-transform: uppercase; margin: .25rem 0 -.25rem;
+  border-bottom: 1px solid var(--border); padding-bottom: .35rem;
+}
+/* Theory table */
+.table-scroll { overflow-x: auto; }
+.theory-table-wrap { margin-top: .25rem; }
+.theory-table {
+  width: 100%; border-collapse: collapse;
+  font-size: .82rem; font-family: var(--mono);
+}
+.theory-table th {
+  background: #1e1508; color: var(--primary);
+  font-family: var(--font-heading); font-weight: 700;
+  padding: .45rem .85rem; border: 1px solid var(--border-hi);
+  text-align: left; letter-spacing: .05em;
+}
+.theory-table td {
+  padding: .4rem .85rem; border: 1px solid var(--border);
+  color: var(--text); line-height: 1.5;
+}
+.theory-table tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+.theory-table td code {
+  font-family: var(--mono); color: var(--primary);
+  background: var(--surface2); padding: .1em .3em;
+  border-radius: 3px; border: 1px solid var(--border); font-size: .85em;
+}
+/* Theory code block */
+.theory-code {
+  background: #070503; border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  padding: .85rem 1.1rem; border-radius: 4px;
+  font-family: var(--mono); font-size: .81rem;
+  line-height: 1.7; color: #c8b890;
+  white-space: pre-wrap; overflow-x: auto;
+  margin: 0;
+}
+/* Callout boxes */
+.theory-callout {
+  display: flex; gap: .75rem; align-items: flex-start;
+  padding: .75rem 1rem; border-radius: 4px;
+  font-size: .84rem; line-height: 1.7;
+}
+.theory-callout-info  { background: rgba(42,110,169,.12); border: 1px solid rgba(42,110,169,.3);  color: #a8cff5; }
+.theory-callout-warning { background: rgba(191,140,30,.12); border: 1px solid rgba(191,140,30,.35); color: #f5d87a; }
+.theory-callout-tip   { background: rgba(60,150,90,.12);  border: 1px solid rgba(60,150,90,.3);   color: #88d9a0; }
+.callout-icon { font-size: 1.05rem; flex-shrink: 0; margin-top: .05rem; }
+
+/* ══════════════════════════════════════════════════
+   RUNE FLASHCARDS
+   ══════════════════════════════════════════════════ */
+.rune-cards-section { margin-top: .5rem; }
+.rune-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: .9rem; margin-top: .75rem;
+}
+.rune-card {
+  perspective: 700px; height: 120px; cursor: pointer;
+}
+.rune-card-inner {
+  position: relative; width: 100%; height: 100%;
+  transform-style: preserve-3d;
+  transition: transform .5s cubic-bezier(.4,0,.2,1);
+}
+.rune-card.flipped .rune-card-inner { transform: rotateY(180deg); }
+.rune-card-front, .rune-card-back {
+  position: absolute; inset: 0;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  border-radius: 6px; border: 1px solid var(--border-hi);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: .6rem; text-align: center;
+  background: linear-gradient(160deg, #1e1508 0%, #110e07 100%);
+}
+.rune-card-back {
+  transform: rotateY(180deg);
+  background: linear-gradient(160deg, #0d180d 0%, #091209 100%);
+  border-color: rgba(90,170,90,.35);
+}
+.rune-glyph { font-size: 1.4rem; color: var(--primary); line-height: 1; }
+.rune-term { font-family: var(--font-heading); font-size: .78rem; font-weight: 700; color: var(--gold); margin-top: .35rem; letter-spacing: .04em; }
+.rune-flip-hint { font-size: .65rem; color: var(--text-muted); margin-top: .3rem; }
+.rune-def { font-size: .75rem; line-height: 1.6; color: #a8e0a8; margin: 0; }
+.rune-def code {
+  font-family: var(--mono); background: rgba(0,0,0,.3);
+  color: var(--primary); padding: .05em .3em; border-radius: 3px; font-size: .85em;
+}
+
+/* ══════════════════════════════════════════════════
+   ORACLE QUIZ
+   ══════════════════════════════════════════════════ */
+.oracle-quiz { display: flex; flex-direction: column; gap: 1.5rem; margin-top: .5rem; }
+.quiz-question {
+  background: var(--surface2);
+  border: 1px solid var(--border); border-top: 2px solid var(--primary);
+  border-radius: 6px; padding: 1rem 1.25rem;
+  display: flex; flex-direction: column; gap: .75rem;
+}
+.quiz-q-text { font-size: .87rem; line-height: 1.7; color: var(--text); margin: 0; }
+.quiz-num { font-family: var(--font-heading); color: var(--primary); font-weight: 700; margin-right: .3em; }
+.quiz-options { display: flex; flex-direction: column; gap: .4rem; }
+.quiz-opt {
+  display: flex; align-items: flex-start; gap: .6rem;
+  padding: .5rem .85rem; border-radius: 4px;
+  border: 1px solid var(--border); background: #0c0906;
+  color: var(--text); font-size: .82rem; line-height: 1.5;
+  cursor: pointer; text-align: left; transition: all .15s;
+  font-family: inherit;
+}
+.quiz-opt:hover:not(:disabled) { border-color: var(--primary); color: var(--gold); background: #1a1105; }
+.quiz-opt:disabled { cursor: default; }
+.quiz-opt.correct { background: rgba(50,140,70,.18); border-color: rgba(50,180,70,.5); color: #88e0a0 !important; }
+.quiz-opt.wrong   { background: rgba(180,50,50,.18); border-color: rgba(220,60,60,.5);  color: #f09090 !important; }
+.quiz-opt-letter {
+  font-family: var(--font-heading); font-size: .7rem; font-weight: 700;
+  color: var(--primary); min-width: 1.2em;
+  background: #1e1508; border: 1px solid var(--border);
+  border-radius: 3px; padding: 0 .3em; flex-shrink: 0;
+}
+.quiz-code-block {
+  background: #070503; border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  padding: .75rem 1rem; border-radius: 4px;
+  font-family: var(--mono); font-size: .8rem; color: #c8b890;
+  white-space: pre-wrap; overflow-x: auto; margin: -.1rem 0 .1rem;
+}
+.quiz-feedback {
+  display: flex; gap: .65rem; align-items: flex-start;
+  padding: .6rem .9rem; border-radius: 4px;
+  font-size: .82rem; line-height: 1.65;
+  border: 1px solid transparent;
+}
+.quiz-feedback.correct { background: rgba(50,140,70,.12); border-color: rgba(60,180,80,.3); color: #80d090; }
+.quiz-feedback.wrong   { background: rgba(170,50,50,.12);  border-color: rgba(210,70,70,.3);  color: #f09090; }
+.qf-icon { font-size: 1rem; flex-shrink: 0; }
+
+/* ══════════════════════════════════════════════════
+   CODEX (theory reference)
+   ══════════════════════════════════════════════════ */
+.codex-page { max-width: 900px; margin: 0 auto; padding: 2rem 1rem; display: flex; flex-direction: column; gap: 2rem; }
+.codex-header { text-align: center; }
+.codex-title {
+  font-family: var(--font-heading); font-size: 2rem; font-weight: 700;
+  color: var(--gold); letter-spacing: .08em; text-shadow: 0 0 18px rgba(201,162,39,.4);
+  margin-bottom: .35rem;
+}
+.codex-subtitle { font-size: .9rem; color: var(--text-muted); max-width: 520px; margin: 0 auto; }
+.codex-volumes { display: flex; flex-direction: column; gap: 1.5rem; }
+.codex-volume-title {
+  font-family: var(--font-heading); font-size: 1rem; font-weight: 700;
+  color: var(--primary); letter-spacing: .1em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border); padding-bottom: .4rem; margin: 0;
+}
+.codex-chapters { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; margin-top: .75rem; }
+.codex-chapter-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius); padding: .9rem 1.1rem;
+  display: flex; flex-direction: column; gap: .35rem;
+  text-decoration: none; color: var(--text);
+  transition: all .18s; cursor: pointer;
+}
+.codex-chapter-card:hover {
+  border-color: var(--border-hi); border-left-color: var(--gold);
+  background: #1a1105; box-shadow: 0 0 12px rgba(201,162,39,.12);
+  color: var(--gold);
+}
+.codex-ch-num { font-size: .68rem; color: var(--text-muted); font-family: var(--mono); }
+.codex-ch-title { font-family: var(--font-heading); font-size: .82rem; font-weight: 700; color: var(--gold); }
+.codex-ch-desc { font-size: .76rem; color: var(--text-muted); line-height: 1.5; }
+.codex-ch-time { font-size: .68rem; color: var(--primary); font-family: var(--mono); }
+
+/* Codex chapter page */
+.codex-chapter-page { max-width: 820px; margin: 0 auto; padding: 2rem 1rem; display: flex; flex-direction: column; gap: 1.75rem; }
+.codex-ch-header { display: flex; flex-direction: column; gap: .35rem; }
+.codex-ch-back { font-size: .82rem; color: var(--text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: .35rem; margin-bottom: .5rem; }
+.codex-ch-back:hover { color: var(--primary); }
+.codex-ch-page-title { font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--gold); letter-spacing: .06em; }
+.codex-ch-page-meta { font-size: .78rem; color: var(--text-muted); font-family: var(--mono); }
+.codex-section { display: flex; flex-direction: column; gap: .85rem; }
+.codex-section-title {
+  font-family: var(--font-heading); font-size: .9rem; font-weight: 700;
+  color: var(--primary); letter-spacing: .07em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border); padding-bottom: .35rem; margin: 0;
+}
+
+/* Theory scroll on dungeon page */
+.theory-scroll-wrap { margin-bottom: .25rem; }
+.theory-scroll-toggle {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--font-heading); font-size: .78rem;
+  color: var(--text-muted); cursor: pointer;
+  background: none; border: none; padding: .35rem 0;
+  letter-spacing: .05em;
+}
+.theory-scroll-toggle:hover { color: var(--primary); }
+.theory-scroll-toggle .ts-icon { transition: transform .25s; }
+.theory-scroll-toggle.open .ts-icon { transform: rotate(90deg); }
+.theory-scroll-body {
+  display: none; margin-top: .6rem;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 4px; padding: .85rem 1.1rem;
+  font-size: .82rem; line-height: 1.75; color: var(--text);
+}
+.theory-scroll-body.open { display: block; }
+.theory-scroll-body code {
+  font-family: var(--mono); background: var(--surface);
+  color: var(--primary); padding: .1em .35em;
+  border-radius: 3px; border: 1px solid var(--border); font-size: .85em;
+}
+.theory-scroll-body strong { color: var(--gold); }

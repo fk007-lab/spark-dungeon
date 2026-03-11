@@ -1,0 +1,127 @@
+{
+  "id": "v2c3",
+  "volume": "vol2",
+  "volume_title": "Volume II — DataFrames & Spark SQL",
+  "title": "Join Strategies & Optimization",
+  "estimated_time": "17 min",
+  "sections": [
+    {
+      "title": "The Three Join Strategies",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Spark has three physical join strategies. Picking the right one — or forcing it — is the single fastest win in Spark performance tuning. Every Data Engineer at MAANG is expected to explain all three in an interview."
+        },
+        {
+          "type": "table",
+          "headers": ["Strategy", "When Spark uses it", "Shuffles needed", "Memory pressure"],
+          "rows": [
+            ["<strong>Broadcast Hash Join (BHJ)</strong>", "One side ≤ <code>autoBroadcastJoinThreshold</code> (default 10 MB)", "Zero — small table copied to every executor", "High on driver + executor (small table fits in RAM)"],
+            ["<strong>Sort-Merge Join (SMJ)</strong>", "Both sides large; default when BHJ not possible", "Two full shuffles + sort on both sides", "Low per-executor — streams rather than holds all data"],
+            ["<strong>Shuffle Hash Join (SHJ)</strong>", "One side significantly smaller, but over broadcast threshold", "One shuffle — smaller side built into a hash map", "Medium — smaller partition must fit in executor RAM"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Rule of thumb for interviews:</strong> BHJ = fastest (0 shuffles). SMJ = safest (works at any scale). SHJ = middle ground that Spark rarely picks automatically."
+        }
+      ]
+    },
+    {
+      "title": "How Spark Picks a Strategy",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Catalyst uses table statistics to decide. The key threshold is <code>spark.sql.autoBroadcastJoinThreshold</code>. If estimated size of one join side is below this limit, Spark broadcasts it. Set to -1 to disable broadcasting entirely."
+        },
+        {
+          "type": "code",
+          "content": "# Check current threshold (default = 10 MB = 10485760 bytes)\nspark.conf.get('spark.sql.autoBroadcastJoinThreshold')\n# → '10485760'\n\n# Raise threshold to 100 MB (safe for cluster with 8 GB+ executor RAM)\nspark.conf.set('spark.sql.autoBroadcastJoinThreshold', 100 * 1024 * 1024)\n\n# Disable auto-broadcast (force SMJ for all joins)\nspark.conf.set('spark.sql.autoBroadcastJoinThreshold', -1)\n\n# Check the plan — does it say BroadcastHashJoin?\ndf_large.join(df_small, 'id').explain(mode='formatted')"
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Statistics are only accurate if you've run <code>ANALYZE TABLE ... COMPUTE STATISTICS</code> (Hive metastore) or the table has Parquet/Delta min/max stats. Without stats, Spark may underestimate size and skip broadcasting a table that should be broadcast."
+        }
+      ]
+    },
+    {
+      "title": "Forcing a Join Strategy with Hints",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "When Spark makes the wrong choice — or you know more than the optimizer — use join hints. Hints override the statistics-based decision."
+        },
+        {
+          "type": "code",
+          "content": "from pyspark.sql.functions import broadcast\n\n# ── Method 1: broadcast() function (Python-friendly) ──\nresult = df_large.join(broadcast(df_small), 'dept_id')\n\n# ── Method 2: SQL hint syntax ──\nresult = spark.sql(\"\"\"\n    SELECT /*+ BROADCAST(d) */ e.name, d.dept_name\n    FROM employees e JOIN departments d ON e.dept_id = d.id\n\"\"\")\n\n# ── Method 3: DataFrame hint ──\nresult = df_large.hint('broadcast').join(df_small, 'dept_id')\n\n# Force Sort-Merge Join (disable BHJ even for small tables)\nresult = df_a.hint('merge').join(df_b, 'key')\n\n# Available hints: BROADCAST, MERGE (SMJ), SHUFFLE_HASH, SHUFFLE_REPLICATE_NL"
+        }
+      ]
+    },
+    {
+      "title": "Bucketing: Eliminating Shuffle on Repeated Joins",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Bucketing pre-distributes data by a join/group key at write time. When two bucketed tables join on the same key with the same bucket count, Spark skips the shuffle entirely — the data is already co-located."
+        },
+        {
+          "type": "code",
+          "content": "# Write tables as bucketed Parquet (one-time cost)\ndf_orders.write \\\n    .bucketBy(200, 'customer_id') \\\n    .sortBy('customer_id') \\\n    .saveAsTable('orders_bucketed')\n\ndf_customers.write \\\n    .bucketBy(200, 'customer_id') \\\n    .sortBy('customer_id') \\\n    .saveAsTable('customers_bucketed')\n\n# Future joins skip shuffle!\nordersB = spark.table('orders_bucketed')\ncustomersB = spark.table('customers_bucketed')\nordersB.join(customersB, 'customer_id').explain()\n# Physical plan shows: SortMergeJoin WITHOUT Exchange nodes → zero shuffle ✅"
+        },
+        {
+          "type": "callout",
+          "variant": "info",
+          "content": "<strong>MAANG pattern:</strong> Dimension tables used in thousands of daily jobs are almost always bucketed. The one-time write cost pays off after just a few reads."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Broadcast Hash Join",
+      "glyph": "📡",
+      "definition": "Copies the smaller table to every executor. Zero shuffles required. Fastest join but limited to small tables (default ≤10 MB). Force with broadcast() or /*+ BROADCAST */."
+    },
+    {
+      "term": "Sort-Merge Join",
+      "glyph": "⚙️",
+      "definition": "Default join for large tables. Requires two full shuffles (both sides repartitioned by join key) plus a sort. Spill-safe — doesn't require the full partition to fit in RAM."
+    },
+    {
+      "term": "autoBroadcastJoinThreshold",
+      "glyph": "📏",
+      "definition": "spark.sql.autoBroadcastJoinThreshold — estimated size in bytes below which Spark will broadcast a relation. Default 10 MB. Set to -1 to disable. Raise to 256 MB+ for larger lookup tables if RAM permits."
+    },
+    {
+      "term": "Bucketing",
+      "glyph": "🪣",
+      "definition": "Pre-partition data at write time by a column into N buckets. When two tables share the same bucket key + count, joins and aggregations skip the shuffle entirely. Requires Hive metastore (saveAsTable)."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You have a 5 MB lookup table joined to a 500 GB fact table. Which join strategy does Spark pick by default and why?",
+      "options": [
+        "Sort-Merge Join — it's always the default",
+        "Broadcast Hash Join — the lookup table is below autoBroadcastJoinThreshold (10 MB)",
+        "Shuffle Hash Join — one side is much smaller",
+        "Cartesian Join — no join key specified"
+      ],
+      "correct": 1,
+      "feedback": "Correct. The 5 MB table is under the 10 MB default threshold, so Catalyst broadcasts it to all executors. This results in zero shuffles on the 500 GB fact table."
+    },
+    {
+      "question": "Your plan shows two Exchange nodes before a SortMergeJoin. You know the right side is only 80 MB. What's the fastest fix?",
+      "options": [
+        "Increase spark.default.parallelism",
+        "Wrap the right-side DataFrame with broadcast()",
+        "Use coalesce() before the join",
+        "Set spark.sql.shuffle.partitions to 2000"
+      ],
+      "correct": 1,
+      "feedback": "wrap the right side with broadcast(df_right). This tells Catalyst to copy it to every executor and eliminates both shuffles. The other options don't change the join strategy."
+    }
+  ]
+}

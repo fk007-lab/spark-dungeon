@@ -1,0 +1,121 @@
+{
+  "id": "v5c1",
+  "volume": "vol5",
+  "volume_title": "Volume V — Performance Engineering",
+  "title": "Adaptive Query Execution (AQE)",
+  "estimated_time": "14 min",
+  "sections": [
+    {
+      "title": "What AQE Does",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Before AQE (Spark < 3.0), Catalyst optimized the query plan entirely upfront using static statistics. The plan couldn't adapt to what the data actually looked like at runtime. AQE changes that — it re-optimizes the plan at runtime based on <strong>actual shuffle statistics</strong> collected after each shuffle exchange."
+        },
+        {
+          "type": "table",
+          "headers": ["AQE Feature", "Problem it solves", "How"],
+          "rows": [
+            ["Dynamic partition coalescing", "Too many small shuffle partitions (shuffle.partitions=200 but actual result is tiny)", "After shuffle, merge adjacent small partitions into fewer larger ones"],
+            ["Skew join optimization", "One partition has 100x more data than others → straggler tasks", "Split the big partition, replicate the matching side, process in parallel"],
+            ["Dynamic switch to BroadcastHashJoin", "Table estimated as large, but actual runtime size is small enough to broadcast", "Replace SortMergeJoin with BroadcastHashJoin at runtime"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# AQE is enabled by default in Spark 3.x\nspark.conf.get('spark.sql.adaptive.enabled')  # → 'true'\n\n# Key AQE configs\nspark.conf.set('spark.sql.adaptive.enabled', 'true')  # enable/disable\nspark.conf.set('spark.sql.adaptive.coalescePartitions.enabled', 'true')\nspark.conf.set('spark.sql.adaptive.skewJoin.enabled', 'true')\nspark.conf.set('spark.sql.adaptive.localShuffleReader.enabled', 'true')"
+        }
+      ]
+    },
+    {
+      "title": "Dynamic Partition Coalescing",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The classic problem: <code>spark.sql.shuffle.partitions=200</code>, but your groupBy on a filter result produces only 1000 rows. You get 200 tiny tasks each processing 5 rows. Wasteful. AQE coalesces them."
+        },
+        {
+          "type": "code",
+          "content": "# Config: target size for coalesced partitions (default 64 MB)\nspark.conf.set('spark.sql.adaptive.advisoryPartitionSizeInBytes', '64mb')\n\n# Minimum number of partitions after coalescing\nspark.conf.set('spark.sql.adaptive.coalescePartitions.minPartitionNum', '1')\n\n# Example: query produces 200 partitions, AQE coalesces to 3 big ones\ndf.groupBy('country').agg(F.sum('amount')) \\\n  .explain(mode='formatted')\n# Physical plan shows: AdaptiveSparkPlan (reoptimizations possible)\n# After execution: only 3 tasks instead of 200"
+        }
+      ]
+    },
+    {
+      "title": "Skew Join Detection & Splitting",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "AQE detects skew after the first shuffle: if one partition is <code>skewFactor × median_partition_size</code> AND larger than <code>skewedPartitionThresholdInBytes</code>, it splits that partition into multiple smaller ones and replicates the corresponding partition of the other side."
+        },
+        {
+          "type": "code",
+          "content": "# Skew detection thresholds\nspark.conf.set('spark.sql.adaptive.skewJoin.skewedPartitionFactor', '5')  # 5x median\nspark.conf.set('spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes', '256mb')\n\n# Example: join orders (1B rows) with customers\n# customer_id='AMAZON' has 200M of 1B orders → huge skew\n# Without AQE: 1 straggler task processes 200M rows\n# With AQE: Spark splits the AMAZON partition into 20 sub-partitions\n#           replicates the matching AMAZON customer row 20 times\n#           20 parallel tasks each process 10M rows → 20x faster\n\n# AQE skew handling is visible in the Spark UI → SQL tab → AQE plan"
+        },
+        {
+          "type": "callout",
+          "variant": "info",
+          "content": "Even with AQE, extreme skew (one key = 90% of data) may be better handled manually with <strong>salting</strong>. AQE handles moderate skew (1 key = 5-20% of data) well automatically."
+        }
+      ]
+    },
+    {
+      "title": "Runtime Join Strategy Switching",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Catalyst may initially plan a SortMergeJoin because table statistics suggest one side is large. But after filtering, the actual shuffled data is small. AQE can switch to BroadcastHashJoin at runtime — zero extra shuffles."
+        },
+        {
+          "type": "code",
+          "content": "# AQE broadcast threshold (may differ from autoBroadcastJoinThreshold)\nspark.conf.set('spark.sql.adaptive.maxShuffledHashJoinLocalMapThreshold', '64mb')\n\n# When AQE switches a join you'll see in the plan:\n# AdaptiveSparkPlan (runtime plan)\n#   BroadcastHashJoin          ← switched at runtime from SMJ\n#   BroadcastExchange\n#     ...(originally planned as SMJ)\n\n# Disable runtime switching if you have reasons to force SMJ:\nspark.conf.set('spark.sql.adaptive.enabled', 'false')  # or use hint"
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "AQE",
+      "glyph": "🧠",
+      "definition": "Adaptive Query Execution — Spark 3.0+ feature that re-optimizes the physical plan at runtime using actual shuffle statistics. Enabled by default. Three main benefits: dynamic coalescing, skew join splitting, runtime join strategy switching."
+    },
+    {
+      "term": "Dynamic Coalescing",
+      "glyph": "🗜️",
+      "definition": "AQE post-shuffle optimization: merges many small shuffle output partitions into fewer larger ones (targeting advisoryPartitionSizeInBytes = 64 MB). Eliminates the problem of setting shuffle.partitions too high."
+    },
+    {
+      "term": "Skew Split",
+      "glyph": "✂️",
+      "definition": "AQE detects when one join partition is 5x larger than the median (and > 256 MB). It splits that partition into N sub-partitions and replicates the other side's matching partition N times, turning 1 straggler task into N parallel tasks."
+    },
+    {
+      "term": "AdaptiveSparkPlan",
+      "glyph": "🔄",
+      "definition": "Wrapper node visible in query plans when AQE is enabled. Contains the initial plan and the runtime-reoptimized plan. In the Spark UI SQL tab you can see both the initial and final (post-AQE) plans side by side."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You have shuffle.partitions=500. Your query aggregates a heavily-filtered DataFrame that produces only 10,000 rows total. With AQE enabled, what happens?",
+      "options": [
+        "500 tasks each processing 20 rows — same as without AQE",
+        "AQE coalesces the 500 partitions into ~1-5 larger partitions based on actual data size",
+        "AQE increases the partition count to handle the small data faster",
+        "AQE disables the aggregation and returns a cached result"
+      ],
+      "correct": 1,
+      "feedback": "AQE's dynamic partition coalescing analyzes post-shuffle partition sizes. Since 10,000 rows distributed across 500 partitions produces very tiny partitions, AQE merges them toward the advisoryPartitionSizeInBytes target (default 64 MB). Result: far fewer tasks with meaningful work each."
+    },
+    {
+      "question": "In the Spark UI, you see one task took 45 minutes while all others finished in 30 seconds. You see 'AQE Skew Join' in the plan but the straggler still exists. What's the most likely explanation?",
+      "options": [
+        "AQE is disabled",
+        "The skewed partition is below the skewedPartitionThresholdInBytes or skewedPartitionFactor threshold",
+        "The join is a BroadcastHashJoin which AQE can't optimize",
+        "The task is writing to a slow disk"
+      ],
+      "correct": 1,
+      "feedback": "AQE skew handling only triggers when a partition exceeds BOTH thresholds: skewedPartitionFactor (5x median by default) AND skewedPartitionThresholdInBytes (256 MB by default). If the skewed partition is large in rows but small in bytes (e.g., small string values), it may not trigger. Lower the threshold or use manual salting."
+    }
+  ]
+}

@@ -17,6 +17,7 @@ from backend.mission_loader import (
 from backend import progression
 from backend.runner import run_code
 from backend.validator import validate
+from backend.codex_loader import get_codex_index, get_chapter
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -209,3 +210,25 @@ async def api_reset():
     first_id = all_ids[0] if all_ids else ""
     progression.reset_all(all_ids, first_id)
     return {"reset": True}
+
+
+# ── Codex routes ─────────────────────────────────────────────────────────────
+
+@app.get("/codex", response_class=HTMLResponse)
+async def codex_index(request: Request):
+    index = get_codex_index()
+    return templates.TemplateResponse(
+        "codex_index.html",
+        {"request": request, "volumes": index.get("volumes", [])},
+    )
+
+
+@app.get("/codex/{chapter_id}", response_class=HTMLResponse)
+async def codex_chapter(request: Request, chapter_id: str):
+    chapter = get_chapter(chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    return templates.TemplateResponse(
+        "codex_chapter.html",
+        {"request": request, "chapter": chapter},
+    )

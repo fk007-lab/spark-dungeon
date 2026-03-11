@@ -1,4 +1,4 @@
-# ⚡ Spark Dungeon
+content = r"""# ⚡ Spark Dungeon
 
 > **A self-hosted PySpark learning game built for MAANG-level Data Engineering interviews.**
 > Dungeon crawl your way through real Spark challenges — with embedded theory, flashcards, quizzes, and a deep-dive reference library.
@@ -224,3 +224,9 @@ uvicorn backend.main:app --reload --port 8000
 ## License
 
 MIT
+"""
+
+with open("README.md", "w") as f:
+    f.write(content)
+
+print("README.md written successfully.")

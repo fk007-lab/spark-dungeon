@@ -1,0 +1,123 @@
+{
+  "id": "v5c2",
+  "volume": "vol5",
+  "volume_title": "Volume V — Performance Engineering",
+  "title": "Handling Data Skew",
+  "estimated_time": "16 min",
+  "sections": [
+    {
+      "title": "Diagnosing Skew",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Data skew is when the data distribution across partitions is highly uneven. One partition has millions of rows; others have hundreds. The job's runtime is determined by the slowest task — the straggler."
+        },
+        {
+          "type": "table",
+          "headers": ["Signal", "Where to look", "Indicator of skew"],
+          "rows": [
+            ["Straggler tasks", "Spark UI → Stages tab", "One task takes 10x longer than P75 task duration"],
+            ["Partition size variance", "Spark UI → Stage → Tasks → Input Size", "One task reads GB while others read MB"],
+            ["Spill metrics", "Spark UI → Stage → Tasks → Shuffle Spill", "One task spills to disk while others don't"],
+            ["groupBy distinct count", "Your knowledge of data", "countDistinct on join key shows 1 key has 10M of 50M rows"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# Quick skew diagnostic in PySpark\ndf.groupBy('join_key') \\\n  .count() \\\n  .orderBy(F.col('count').desc()) \\\n  .show(10)\n# If top 1-3 keys have counts orders of magnitude higher than the median → skew"
+        }
+      ]
+    },
+    {
+      "title": "Salting: The Classic Fix",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Salting adds a random suffix to the skewed key, creating multiple artificial sub-keys. The large partition is split across multiple executors. The non-skewed side must be exploded to match all salt values."
+        },
+        {
+          "type": "code",
+          "content": "import pyspark.sql.functions as F\n\n# Problem: key 'AMAZON' has 200M rows, others average 100K\nSALT_FACTOR = 20  # split the big key into 20 sub-keys\n\n# Salt the LARGE side (the one that's skewed)\ndf_large_salted = df_large.withColumn(\n    'salt_key',\n    F.concat(\n        F.col('customer_id'),\n        F.lit('_'),\n        (F.rand() * SALT_FACTOR).cast('int').cast('string')\n    )\n)\n\n# Explode the SMALL side to match all salt values\nsalt_range = spark.range(SALT_FACTOR).toDF('salt')\ndf_small_exploded = df_small.crossJoin(salt_range).withColumn(\n    'salt_key',\n    F.concat(\n        F.col('customer_id'),\n        F.lit('_'),\n        F.col('salt').cast('string')\n    )\n)\n\n# Now join on the salted key\nresult = df_large_salted.join(df_small_exploded, 'salt_key').drop('salt_key', 'salt')"
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Salting increases the small side's size by SALT_FACTOR. If the small side is 10 GB and SALT_FACTOR=20, the exploded small side is 200 GB. Use broadcast() if the small side fits in memory instead."
+        }
+      ]
+    },
+    {
+      "title": "Key Isolation Pattern",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "If only a few keys are skewed (e.g., 'AMAZON', 'WALMART'), process them separately with a broadcast join and UNION with the rest."
+        },
+        {
+          "type": "code",
+          "content": "skewed_keys = ['AMAZON', 'WALMART']\n\n# Path 1: Skewed keys — use broadcast join (key appears in both sides)\ndf_skewed = df_large.filter(F.col('customer_id').isin(skewed_keys))\ndf_small_skewed = df_small.filter(F.col('customer_id').isin(skewed_keys))\nresult_skewed = df_skewed.join(broadcast(df_small_skewed), 'customer_id')\n\n# Path 2: Non-skewed keys — regular SMJ (fast, no skew)\ndf_normal = df_large.filter(~F.col('customer_id').isin(skewed_keys))\ndf_small_normal = df_small.filter(~F.col('customer_id').isin(skewed_keys))\nresult_normal = df_normal.join(df_small_normal, 'customer_id')\n\n# Combine\nresult = result_skewed.union(result_normal)"
+        }
+      ]
+    },
+    {
+      "title": "repartitionByRange for Uniform Distribution",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "# repartitionByRange distributes data uniformly by value range\n# Better than repartition('col') for sorted key spaces\n\n# repartition('customer_id') → hash-based → hot keys still land on same partition\n# repartitionByRange('customer_id') → range-based → uniform distribution\n\ndf.repartitionByRange(200, 'customer_id').orderBy('customer_id') \\\n  .write.parquet('s3://bucket/output/')\n# Each of 200 partitions covers a ~equal range of customer_id values"
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Summary of skew strategies:</strong> (1) Let AQE handle it automatically for moderate skew. (2) Use broadcast() if skewed side is small. (3) Use salting for heavy skew on a few keys. (4) Use key isolation for 1-5 known monster keys. Always diagnose first — don't pre-optimize."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Salting",
+      "glyph": "🧂",
+      "definition": "Skew fix: append a random integer suffix (0 to N-1) to skewed join keys, splitting one hot partition into N equally-sized sub-partitions. The non-skewed side must be exploded by the same N factor to match all salt values."
+    },
+    {
+      "term": "Straggler Task",
+      "glyph": "🐢",
+      "definition": "A single task that takes dramatically longer than all others in its stage. Job completion time = max task time. Always the symptom of data skew or expensive per-row operations (UDFs, external lookups). Visible in Spark UI Stage view."
+    },
+    {
+      "term": "Key Isolation",
+      "glyph": "🔑",
+      "definition": "Skew fix: separate the few known hot keys (AMAZON, WALMART) from the normal data. Process hot keys with broadcast(), normal keys with SMJ, then UNION results. More efficient than salting when only 1-5 keys are problematic."
+    },
+    {
+      "term": "repartitionByRange()",
+      "glyph": "📊",
+      "definition": "Shuffles data such that each partition covers an equal value range of the specified column. Uses sampling to determine range boundaries. Better than hash-based repartition for writing sorted, uniformly-distributed data."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You join orders (500M rows) with customers (1M rows). The orders table has 80% of rows for customer_id='ENT001'. AQE is enabled but not helping. What's the best fix?",
+      "options": [
+        "Increase spark.sql.shuffle.partitions to 2000",
+        "Use broadcast(customers) — 1M customer rows likely fits in executor RAM",
+        "Apply salting with SALT_FACTOR=100",
+        "Increase skewedPartitionFactor to 100"
+      ],
+      "correct": 1,
+      "feedback": "1M customer rows is small — typically ~100-500 MB. Broadcasting the entire customers table means zero shuffles and eliminates skew entirely. Salting would also work but is more complex. AQE's skew handling works on the join, not the data distribution, so it's less effective when one key is 80% of data."
+    },
+    {
+      "question": "You apply salting with SALT_FACTOR=10 to a join where the small side is 50 GB. What's the problem?",
+      "options": [
+        "Salting doesn't work with DataFrames",
+        "The exploded small side becomes 500 GB — potentially worse than the original skew",
+        "SALT_FACTOR must be a prime number",
+        "The large side needs to be sorted first"
+      ],
+      "correct": 1,
+      "feedback": "Salting multiplies the small side by SALT_FACTOR. 50 GB × 10 = 500 GB — this may exceed cluster capacity and create new problems. For large small-side tables, prefer key isolation (process hot keys separately with broadcast, normal keys with SMJ) instead of exploding the entire small side."
+    }
+  ]
+}

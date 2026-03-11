@@ -1,0 +1,137 @@
+{
+  "id": "v2c1",
+  "volume": "vol2",
+  "volume_title": "Volume II — DataFrames & Spark SQL",
+  "title": "Catalyst Optimizer Deep Dive",
+  "estimated_time": "16 min",
+  "sections": [
+    {
+      "title": "The 4 Phases of Catalyst",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The <strong>Catalyst Optimizer</strong> is what separates Spark's DataFrame API from an ordinary distributed loop. It transforms your high-level query through 4 phases before a single byte of data is processed."
+        },
+        {
+          "type": "table",
+          "headers": ["Phase", "Input", "Output", "What happens"],
+          "rows": [
+            ["1. Analysis", "Unresolved logical plan", "Resolved logical plan", "Column names validated against schema. Unknown functions looked up. Types resolved."],
+            ["2. Logical Optimization", "Resolved logical plan", "Optimized logical plan", "Rule-based rewrites: predicate pushdown, column pruning, constant folding, Boolean simplification."],
+            ["3. Physical Planning", "Optimized logical plan", "Physical plan(s)", "Cost-based: picks join strategies (broadcast vs SMJ), aggregate strategies. Generates multiple candidates, selects lowest cost."],
+            ["4. Code Generation", "Physical plan", "JVM bytecode", "Tungsten whole-stage codegen: compiles tight loops to JVM bytecode. Eliminates virtual function call overhead."]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Key Logical Optimizations",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The logical optimization phase applies a library of rules repeatedly until no more apply. The most impactful ones:"
+        },
+        {
+          "type": "table",
+          "headers": ["Rule", "What it does", "Example"],
+          "rows": [
+            ["Predicate Pushdown", "Moves filter() down past joins/scans closer to source", "<code>JOIN → FILTER</code> becomes <code>FILTER → JOIN</code>"],
+            ["Column Pruning", "Removes unused columns from scans", "If you select 3 cols from a 50-col table, Catalyst drops the other 47 from the scan"],
+            ["Constant Folding", "Evaluates constant expresions at plan time", "<code>col('x') + 1 + 2</code> becomes <code>col('x') + 3</code>"],
+            ["Boolean Simplification", "Simplifies tautologies and contradictions", "<code>x > 5 AND x > 3</code> becomes <code>x > 5</code>"],
+            ["Join Reordering", "Reorders multi-way joins to minimize intermediate sizes (CBO)", "Smaller table joined first; join order based on statistics"]
+          ]
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "<strong>Rule-based vs Cost-based optimization:</strong> Most rules are rule-based (always applies). Cost-based optimization (CBO) uses column statistics (cardinality, distinct values, histograms) collected via <code>ANALYZE TABLE ... COMPUTE STATISTICS</code>. Without statistics, join reorder falls back to plan order. At MAANG, always run ANALYZE on large Delta tables before complex multi-way joins."
+        }
+      ]
+    },
+    {
+      "title": "Whole-Stage Code Generation",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<strong>Whole-Stage Codegen</strong> (Tungsten Phase 2) compiles an entire pipeline of operators into a single JVM method with a tight loop — eliminating virtual function calls between operators, reducing object allocation, and enabling CPU branch prediction and cache locality."
+        },
+        {
+          "type": "code",
+          "content": "# Codegen in explain output:\ndf.explain()\n# You'll see operators prefixed with *(N):\n# *(1) Project [name#5, salary#6]        <- codegen stage 1\n# +- *(1) Filter (salary#6 > 80000)      <- same codegen stage\n#    +- *(1) FileScan parquet [name, salary, dept]\n#\n# Operators in the same *(N) stage run as one compiled JVM method.\n# Exchange (shuffle) breaks the codegen stage — it's *(1) then *(2).\n\n# Disable codegen to debug (don't do this in production):\nspark.conf.set('spark.sql.codegen.wholeStage', 'false')"
+        },
+        {
+          "type": "callout",
+          "style": "info",
+          "icon": "ℹ️",
+          "content": "In explain() output, operators prefixed with <code>*(1)</code>, <code>*(2)</code> etc. are in a whole-stage codegen pipeline. <code>Exchange</code> (shuffle) breaks stages. An <code>InputAdapter</code> wraps operators that can't be code-generated (certain Python UDFs, complex types)."
+        }
+      ]
+    },
+    {
+      "title": "How to Influence the Optimizer",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": ["Technique", "Effect", "API"],
+          "rows": [
+            ["Broadcast hint", "Forces broadcast join for a specific table", "<code>broadcast(df)</code> or <code>/*+ BROADCAST(t) */</code> in SQL"],
+            ["Collect statistics", "Enables CBO join reordering", "<code>ANALYZE TABLE t COMPUTE STATISTICS FOR COLUMNS col1, col2</code>"],
+            ["Disable AQE", "Debug — see static plan without runtime adaptation", "<code>spark.sql.adaptive.enabled=false</code>"],
+            ["Repartition before join", "Avoid re-shuffle if you re-use the same join key multiple times", "<code>df.repartition(200, 'key')</code>"],
+            ["Avoid cartesian products", "Cross joins create massive intermediate — Catalyst warns but doesn't prevent", "Always provide a join key"]
+          ]
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Catalyst",
+      "definition": "Spark's query optimizer framework. Built in Scala with Scala macros. 4 phases: analysis → logical opt → physical planning → codegen. Extensible — Databricks adds Delta-specific rules."
+    },
+    {
+      "term": "Predicate Pushdown",
+      "definition": "Moves WHERE clauses as close to the data source as possible. For Parquet, pushes all the way to the file reader — row groups with all values outside the predicate range are skipped without reading."
+    },
+    {
+      "term": "CBO (Cost-Based Optimization)",
+      "definition": "Optimizer uses actual table statistics (row counts, column cardinality, histograms) to choose join order and strategy. Requires running <code>ANALYZE TABLE ... COMPUTE STATISTICS</code> first."
+    },
+    {
+      "term": "Whole-Stage Codegen",
+      "definition": "Compiles multiple DataFrame operators into one JVM method for each pipeline stage. Eliminates virtual calls between operators. Shown as <code>*(N)</code> prefix in explain() output."
+    },
+    {
+      "term": "InputAdapter",
+      "definition": "A wrapper in the physical plan for operators that can't participate in whole-stage codegen (some UDFs, python operations). Acts as a boundary — codegen stage ends here."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "You run: <code>df.filter(col('salary') > 80000).join(df2, 'dept').filter(col('active') == True)</code>. What does Catalyst's predicate pushdown do?",
+      "options": [
+        "Runs all three operations in order as written",
+        "Pushes both filters before the join, reducing the data size that needs to be shuffled for the join",
+        "Moves the join before both filters to enable broadcast",
+        "Only pushes the second filter (active) — the first filter can't be moved"
+      ],
+      "answer": 1,
+      "explanation": "Catalyst pushes filters that reference only one table to BEFORE the join. <code>salary > 80000</code> only touches the left table — it's pushed down to filter it before joining. <code>active == True</code> (if it references either table's column) is also pushed pre-join. This reduces the number of rows shuffled for the join, dramatically improving performance."
+    },
+    {
+      "type": "mcq",
+      "question": "You see <code>*(2) SortMergeJoin</code> in your explain output. What does the <code>*(2)</code> prefix mean?",
+      "options": [
+        "This is the 2nd join in the query",
+        "The SortMergeJoin operator is inside Whole-Stage Codegen stage 2 — compiled together with surrounding operators into one JVM method",
+        "The join has 2 shuffle partitions",
+        "This is the 2nd physical plan candidate considered"
+      ],
+      "answer": 1,
+      "explanation": "<code>*(N)</code> in explain output means the operator is part of Whole-Stage Codegen pipeline N — compiled into a single JVM tight loop with all adjacent operators sharing the same codegen stage. Exchange nodes (shuffles) separate codegen stages."
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "id": "v5c3",
+  "volume": "vol5",
+  "volume_title": "Volume V — Performance Engineering",
+  "title": "Memory Tuning & Spill Prevention",
+  "estimated_time": "17 min",
+  "sections": [
+    {
+      "title": "Executor Memory Regions",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Every Spark executor's memory is divided into four regions. Understanding this model is essential for diagnosing OOMs and tuning cluster configuration."
+        },
+        {
+          "type": "code",
+          "content": "# Executor memory layout:\n# ┌─────────────────────────────────────────────────────┐\n# │  spark.executor.memory = 8g                         │\n# │  ┌───────────────────────────────────────────────┐  │\n# │  │  Reserved Memory (300 MB, fixed by Spark)     │  │  ← Spark internals, not configurable\n# │  ├───────────────────────────────────────────────┤  │\n# │  │  Usable = (8g - 300MB) = 7.7g                 │  │\n# │  │  ┌────────────────────────────────────────┐  │  │\n# │  │  │ Unified Memory Pool = 7.7g × 0.6 = 4.6g │  │  │  ← spark.memory.fraction default 0.6\n# │  │  │  ┌──────────────┬────────────────────┐  │  │  │\n# │  │  │  │ Execution    │ Storage            │  │  │  │  ← share this pool dynamically\n# │  │  │  │ (shuffle,    │ (cached RDDs/DFs)  │  │  │  │\n# │  │  │  │ sort, agg)   │                    │  │  │  │\n# │  │  │  └──────────────┴────────────────────┘  │  │  │\n# │  │  └────────────────────────────────────────┘  │  │\n# │  │  User Memory = 7.7g × 0.4 = 3.1g             │  │  ← UDFs, Python workers, temp vars\n# │  └───────────────────────────────────────────────┘  │\n# └─────────────────────────────────────────────────────┘"
+        },
+        {
+          "type": "table",
+          "headers": ["Region", "Config", "Default", "Use"],
+          "rows": [
+            ["Reserved", "Fixed", "300 MB", "Spark framework internals"],
+            ["Unified (execution)", "<code>spark.memory.fraction</code>", "60% of usable", "Shuffles, sort, hash aggregations"],
+            ["Unified (storage)", "<code>spark.memory.storageFraction</code>", "50% of unified", "Cached DataFrames/RDDs"],
+            ["User", "100% - fraction", "40% of usable", "Python UDF workers, user variables, temp objects"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Spill: When Execution Memory Is Full",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "When more data needs to be sorted/shuffled than fits in execution memory, Spark <strong>spills</strong> to disk. Spill doesn't cause failures — it slows jobs dramatically (disk I/O is 100x slower than RAM) and can fill disks."
+        },
+        {
+          "type": "code",
+          "content": "# Spill detection\n# Spark UI → Stage → Tasks → 'Shuffle Spill (Memory)' and 'Shuffle Spill (Disk)' columns\n# If spill > 0 for many tasks → memory pressure\n\n# Common causes of spill:\n# 1. Shuffle partitions too small → each partition too large for memory\n#    Fix: increase spark.sql.shuffle.partitions\n\n# 2. executor.memory too small for the data volume\n#    Fix: increase spark.executor.memory or reduce partition size\n\n# 3. Complex aggregation (collect_list) accumulating large in-memory state\n#    Fix: rethink the aggregation approach\n\n# Configuration to reduce spill:\nspark.conf.set('spark.sql.shuffle.partitions', '400')  # more partitions → smaller per-task data\nspark.conf.set('spark.executor.memory', '16g')          # more RAM\nspark.conf.set('spark.memory.fraction', '0.7')          # give more to execution pool"
+        }
+      ]
+    },
+    {
+      "title": "OOM Patterns and Fixes",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": ["OOM symptom", "Root cause", "Fix"],
+          "rows": [
+            ["Executor OOM during shuffle read", "Each partition too large for execution memory", "Increase shuffle.partitions or executor.memory"],
+            ["Driver OOM", "collect(), toPandas(), show(100000) — pulling too much data to driver", "Avoid collect() on large DFs; use .limit(N) or write to storage"],
+            ["Python UDF OOM", "Python worker (separate process) uses User Memory — large objects passed to UDF", "Use Spark built-ins instead of Python UDFs; use Pandas UDFs (vectorized)"],
+            ["Storage OOM (cache)", "Too many DataFrames cached, evicting execution memory", "Unpersist old caches; use DISK_ONLY or MEMORY_AND_DISK storage level"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# Cache storage levels — trade CPU for memory\nfrom pyspark import StorageLevel\n\n# Default — fast but uses most memory\ndf.persist(StorageLevel.MEMORY_AND_DISK)\n\n# For large DataFrames that are read infrequently:\ndf.persist(StorageLevel.DISK_ONLY)  # no RAM used\n\n# Serialized (compressed) — 2-5x less memory, 20% slower\ndf.persist(StorageLevel.MEMORY_AND_DISK_SER)\n\n# Always unpersist when done\ndf.unpersist()\n\n# Check what's cached\nspark.catalog.clearCache()  # emergency: clear everything"
+        }
+      ]
+    },
+    {
+      "title": "Garbage Collection Tuning",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Full GC pauses (JVM GC stops all threads) are a common source of mysterious slowdowns. Spark recommends G1GC for most workloads."
+        },
+        {
+          "type": "code",
+          "content": "# Recommended GC configuration for Spark executors\nspark.conf.set('spark.executor.extraJavaOptions',\n    '-XX:+UseG1GC '\n    '-XX:G1HeapRegionSize=32M '\n    '-XX:InitiatingHeapOccupancyPercent=35 '\n    '-XX:+PrintGCDetails '\n    '-verbose:gc '\n    '-XX:+PrintGCTimeStamps'\n)\n# G1GC is better than default ParallelGC for Spark's mixed-age object pattern\n# G1HeapRegionSize: larger regions reduce GC boundary scanning overhead\n# InitiatingHeapOccupancyPercent=35: start GC earlier, avoid full GC\n\n# Signs of GC pressure:\n# - Spark UI: tasks show 'GC Time' > 10% of task time\n# - Executor logs: 'Full GC' entries\n# - Tasks appear stuck with no progress"
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Interview tips:</strong> (1) Python UDFs bypass Tungsten — they serialize data from JVM to Python, a 10x overhead. Always prefer Spark built-ins. (2) Pandas UDFs (vectorized) use Arrow for batch transfer — 10x faster than row-level Python UDFs. (3) Never do collect() in production without a .limit()."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "spark.memory.fraction",
+      "glyph": "📊",
+      "definition": "Fraction of usable executor memory (after 300 MB reserved) allocated to the unified memory pool (execution + storage). Default 0.6. Increase to 0.7-0.8 if you see spill; decrease if Python UDFs OOM."
+    },
+    {
+      "term": "Spill",
+      "glyph": "💧",
+      "definition": "When execution memory fills up during sort/shuffle, Spark writes intermediate data to local disk (spill to disk). Job doesn't fail, but 100x slower. Visible in Spark UI Stage tasks as 'Shuffle Spill (Memory)' and 'Shuffle Spill (Disk)'."
+    },
+    {
+      "term": "G1GC",
+      "glyph": "♻️",
+      "definition": "Garbage-First collector — recommended JVM GC for Spark. Handles mixed-age objects well, reduces full GC pauses. Enable with -XX:+UseG1GC in executor extraJavaOptions. Better than default ParallelGC for most Spark workloads."
+    },
+    {
+      "term": "Pandas UDF",
+      "glyph": "🐼",
+      "definition": "Vectorized Python UDF that transfers data in Arrow columnar batches instead of row-by-row. 10-100x faster than standard Python UDFs. Define with @pandas_udf decorator. Type hint determines return type and UDF type (scalar, grouped_map, grouped_agg)."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "A nightly job runs fine Monday-Thursday but OOMs on Friday. The Friday dataset is 3x larger. Logs show 'GC overhead limit exceeded'. What's the most targeted fix?",
+      "options": [
+        "Increase spark.sql.shuffle.partitions to spread data across more tasks",
+        "Switch to Python UDFs to reduce JVM memory usage",
+        "Add .cache() before every transformation",
+        "Disable Tungsten"
+      ],
+      "correct": 0,
+      "feedback": "More shuffle partitions = smaller partition size = less data each task holds in execution memory at once = less GC pressure. 'GC overhead limit exceeded' means the JVM is spending >98% of time in GC — usually because objects are too large relative to heap. More partitions + slightly more executor memory is the standard fix."
+    },
+    {
+      "question": "You have a Python UDF that processes each row. The job runs 10x slower than equivalent SQL. What's the first optimization to try?",
+      "options": [
+        "Increase spark.executor.memory",
+        "Convert the Python UDF to a Pandas UDF (@pandas_udf) with vectorized batch processing",
+        "Add more executors",
+        "Use repartition() before the UDF"
+      ],
+      "correct": 1,
+      "feedback": "Standard Python UDFs serialize each row from JVM → Python process → back to JVM. Pandas UDFs use Apache Arrow for batch columnar transfer — 10-100x faster. Convert to @pandas_udf with appropriate return type. If possible, replace entirely with Spark built-in functions (no Python overhead at all)."
+    }
+  ]
+}

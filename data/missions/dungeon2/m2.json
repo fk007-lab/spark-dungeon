@@ -10,15 +10,120 @@
   "concept": {
     "explanation": "<code>groupBy(col).agg(...)</code> splits the DataFrame into groups (by unique values in the column), then applies an aggregation to each group. <code>F.count('*')</code> within <code>agg()</code> counts rows per group — equivalent to SQL's <code>GROUP BY col COUNT(*)</code>.",
     "example_code": "# Example: count orders per customer\norders_df = spark.createDataFrame(\n    [(1, 'Alice'), (2, 'Bob'), (3, 'Alice'), (4, 'Carol')],\n    ['order_id', 'customer']\n)\n\nresult = orders_df.groupBy('customer').agg(F.count('*').alias('num_orders'))\n# result:\n# Alice | 2\n# Bob   | 1\n# Carol | 1",
-    "output_note": "Order of groups in the result is not guaranteed unless you chain .orderBy() after."
+    "output_note": "Order of groups in the result is not guaranteed unless you chain .orderBy() after.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>Window functions</strong> compute a value for each row based on a group of related rows (a <em>window frame</em>) — without collapsing rows like <code>groupBy</code> does. In SQL this is <code>OVER (PARTITION BY ... ORDER BY ...)</code>. Use cases: rankings, running totals, moving averages, lead/lag comparisons, percentiles."
+      },
+      {
+        "type": "heading",
+        "content": "Window specification"
+      },
+      {
+        "type": "code",
+        "content": "from pyspark.sql.functions import rank, dense_rank, row_number, sum, avg, lag, lead\nfrom pyspark.sql.window import Window\n\n# Define window: partition by dept, order by salary desc\nw = Window.partitionBy('department').orderBy(col('salary').desc())\n\n# Rank employees within their department\ndf_ranked = df.withColumn('rank', rank().over(w))\ndf_ranked = df.withColumn('dense_rank', dense_rank().over(w))  # no gaps\ndf_ranked = df.withColumn('row_num', row_number().over(w))     # unique, no ties\n\n# Running total of salary within dept\nw_running = Window.partitionBy('department').orderBy('hire_date').rowsBetween(Window.unboundedPreceding, Window.currentRow)\ndf.withColumn('running_payroll', sum('salary').over(w_running))"
+      },
+      {
+        "type": "heading",
+        "content": "rank() vs dense_rank() vs row_number()"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Function",
+          "Ties handled how",
+          "Example output (scores: 100, 100, 90)"
+        ],
+        "rows": [
+          [
+            "<code>rank()</code>",
+            "Tied rows get same rank, next rank skips",
+            "1, 1, 3"
+          ],
+          [
+            "<code>dense_rank()</code>",
+            "Tied rows get same rank, no gap after",
+            "1, 1, 2"
+          ],
+          [
+            "<code>row_number()</code>",
+            "Each row gets unique number regardless of ties",
+            "1, 2, 3 (arbitrary for ties)"
+          ]
+        ]
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>Window functions trigger a shuffle</strong> on the PARTITION BY key. A window with no PARTITION BY is equivalent to a single global partition — ALL data is sent to one executor. Never use <code>Window.orderBy()</code> without <code>partitionBy()</code> on large datasets."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "Window Spec",
+        "definition": "Defines the frame for a window function: <code>Window.partitionBy('dept').orderBy('salary')</code>. Passed to a function via <code>.over(window_spec)</code>."
+      },
+      {
+        "term": "PARTITION BY",
+        "definition": "Splits data into independent groups for the window calculation. Think of it as a groupBy that doesn't collapse rows. No PARTITION BY = one global window = full shuffle to one executor."
+      },
+      {
+        "term": "rank() vs dense_rank()",
+        "definition": "<code>rank()</code> skips numbers after ties (1,1,3). <code>dense_rank()</code> doesn't skip (1,1,2). Use dense_rank() for award tiers; rank() for competition standings."
+      },
+      {
+        "term": "rowsBetween / rangeBetween",
+        "definition": "Window frame boundaries. <code>rowsBetween(Window.unboundedPreceding, Window.currentRow)</code> = running total. <code>rangeBetween(-6, 0)</code> = rolling 7-day window on an ordered integer."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "You need the top-2 earners per department, keeping all their columns. Which approach is correct?",
+        "options": [
+          "<code>df.groupBy('department').agg(max('salary'), second_max('salary'))</code>",
+          "Define a window with <code>partitionBy('department').orderBy(desc('salary'))</code>, add <code>row_number()</code>, then filter <code>rn &lt;= 2</code>",
+          "<code>df.orderBy(desc('salary')).limit(2)</code>",
+          "Use <code>rank()</code> in a window and filter rank == 1 or rank == 2"
+        ],
+        "answer": 1,
+        "explanation": "Window + row_number() is the correct pattern. B and D both work (D works if there are no ties — row_number is safer for exact N rows). A is wrong: there's no <code>second_max</code> function in PySpark. C gives global top-2, not per-department."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "A data engineer wrote this for a running total of orders per user. The result is unexpectedly a full total (same value for all rows). Why?",
+        "code": "from pyspark.sql.window import Window\nw = Window.partitionBy('user_id')\ndf_result = df.withColumn('running_total', sum('amount').over(w))",
+        "options": [
+          "sum() is not supported as a window function — use agg() instead",
+          "The window has no ORDER BY — without ordering, the frame covers all rows in the partition, so every row gets the full partition sum",
+          "Window functions require .cache() on the input DataFrame",
+          "partitionBy() and sum() conflict — use groupBy() for sum"
+        ],
+        "answer": 1,
+        "explanation": "Without <code>orderBy()</code>, Spark uses an unbounded frame (all rows in partition) — every row gets the total partition sum. For a running total, add ordering: <code>Window.partitionBy('user_id').orderBy('order_date').rowsBetween(Window.unboundedPreceding, Window.currentRow)</code>"
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: group by department, count rows per group as 'total', order by department asc\nresult = df.groupBy(___).agg(___).orderBy(___)",
-
   "expected": [
-    {"department": "Engineering", "total": 5},
-    {"department": "Finance",     "total": 3},
-    {"department": "HR",          "total": 3},
-    {"department": "Marketing",   "total": 4}
+    {
+      "department": "Engineering",
+      "total": 5
+    },
+    {
+      "department": "Finance",
+      "total": 3
+    },
+    {
+      "department": "HR",
+      "total": 3
+    },
+    {
+      "department": "Marketing",
+      "total": 4
+    }
   ],
   "hints": [
     "Use df.groupBy('department').agg(F.count('*').alias('total'))",

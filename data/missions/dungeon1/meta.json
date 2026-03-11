@@ -3,5 +3,52 @@
   "title": "Cave of Awakening",
   "description": "Learn the core building blocks: selecting columns, filtering rows, transforming data, and sorting. Every PySpark journey starts here.",
   "icon": "🕯️",
-  "unlock_requires": []
+  "unlock_requires": [],
+  "theory_scroll": [
+    {
+      "type": "text",
+      "content": "<strong>Dungeon I covers the five core DataFrame operations</strong> every PySpark engineer uses daily: <code>select()</code>, <code>filter()</code>, <code>withColumn()</code>, <code>groupBy().agg()</code>, and <code>orderBy()</code>. Mastering these — and understanding what happens under the hood — is the foundation for everything else in Spark."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Operation",
+        "SQL equivalent",
+        "Key consideration"
+      ],
+      "rows": [
+        [
+          "<code>select()</code>",
+          "SELECT col1, col2",
+          "Column pruning — read only what you need from Parquet"
+        ],
+        [
+          "<code>filter()</code>",
+          "WHERE clause",
+          "Use &amp; | ~ not and/or; predicates get pushed to file reader"
+        ],
+        [
+          "<code>withColumn()</code>",
+          "computed column AS",
+          "Avoid chaining 20+ calls — use select() instead"
+        ],
+        [
+          "<code>groupBy().agg()</code>",
+          "GROUP BY + agg fn",
+          "2-phase aggregate: partial (local) then shuffle then final"
+        ],
+        [
+          "<code>orderBy()</code>",
+          "ORDER BY",
+          "Global sort = range-partition shuffle. Pair with limit(N)"
+        ]
+      ]
+    },
+    {
+      "type": "callout",
+      "style": "tip",
+      "icon": "💡",
+      "content": "Run <code>df.explain(mode='formatted')</code> on any query to see what Spark actually plans to do. Learning to read query plans is the single most impactful skill for performance debugging at MAANG."
+    }
+  ]
 }

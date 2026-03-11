@@ -1,0 +1,170 @@
+{
+  "volumes": [
+    {
+      "id": "vol1",
+      "title": "Volume I — The Foundations of Spark",
+      "subtitle": "Architecture, DAG, Partitions, Shuffle",
+      "icon": "🔥",
+      "chapters": [
+        {
+          "id": "v1c1",
+          "title": "The Spark Architecture",
+          "description": "Driver, Executors, DAG Scheduler, Task Scheduler, Cluster Manager — the full mental model.",
+          "estimated_time": "15 min"
+        },
+        {
+          "id": "v1c2",
+          "title": "RDDs, DataFrames, and the Dataset API",
+          "description": "Why RDDs gave way to DataFrames, Catalyst vs Tungsten, and when to drop back to RDDs.",
+          "estimated_time": "12 min"
+        },
+        {
+          "id": "v1c3",
+          "title": "Lazy Evaluation & the DAG",
+          "description": "Transformations vs actions, lineage graphs, stage boundaries, and the execution model.",
+          "estimated_time": "14 min"
+        },
+        {
+          "id": "v1c4",
+          "title": "Partitions & Parallelism",
+          "description": "How data is split, default parallelism, repartition vs coalesce, and partition sizing.",
+          "estimated_time": "13 min"
+        },
+        {
+          "id": "v1c5",
+          "title": "The Shuffle — The Great Enemy",
+          "description": "Sort-merge join mechanics, shuffle read/write metrics, skew, and how to minimize shuffle.",
+          "estimated_time": "18 min"
+        }
+      ]
+    },
+    {
+      "id": "vol2",
+      "title": "Volume II — DataFrames & Spark SQL",
+      "subtitle": "Query Optimization, Catalyst, Physical Plans",
+      "icon": "📊",
+      "chapters": [
+        {
+          "id": "v2c1",
+          "title": "Catalyst Optimizer Deep Dive",
+          "description": "The 4 phases: analysis, logical optimization, physical planning, and code generation.",
+          "estimated_time": "16 min"
+        },
+        {
+          "id": "v2c2",
+          "title": "Reading Query Plans",
+          "description": "How to read explain() output, identify bottlenecks, and spot predicate pushdown in action.",
+          "estimated_time": "14 min"
+        },
+        {
+          "id": "v2c3",
+          "title": "Join Strategies & Optimization",
+          "description": "Broadcast, Sort-Merge, Shuffle Hash — when Spark picks each, and how to force your choice.",
+          "estimated_time": "17 min"
+        },
+        {
+          "id": "v2c4",
+          "title": "Aggregations at Scale",
+          "description": "Two-phase HashAggregate, partial aggregate, countDistinct vs approx_count_distinct, CUBE and ROLLUP.",
+          "estimated_time": "15 min"
+        },
+        {
+          "id": "v2c5",
+          "title": "Window Functions Mastery",
+          "description": "WindowSpec, frame types, ranking functions, running totals, sessionization.",
+          "estimated_time": "20 min"
+        }
+      ]
+    },
+    {
+      "id": "vol3",
+      "title": "Volume III — Storage & Formats",
+      "subtitle": "Parquet, Delta Lake, Z-Ordering, Compaction",
+      "icon": "🗄️",
+      "chapters": [
+        {
+          "id": "v3c1",
+          "title": "Parquet Deep Dive",
+          "description": "Row groups, column chunks, min/max statistics, dictionary encoding, and predicate pushdown.",
+          "estimated_time": "16 min"
+        },
+        {
+          "id": "v3c2",
+          "title": "Delta Lake & ACID on Spark",
+          "description": "Transaction log, snapshot isolation, time travel, schema evolution, and MERGE INTO.",
+          "estimated_time": "20 min"
+        },
+        {
+          "id": "v3c3",
+          "title": "Z-Ordering & Data Skipping",
+          "description": "What Z-ordering does to file layout, when it helps, and when it doesn't.",
+          "estimated_time": "12 min"
+        },
+        {
+          "id": "v3c4",
+          "title": "Small File Problem & Compaction",
+          "description": "Why streaming writes create small files, OPTIMIZE, auto-compaction, and bin-packing.",
+          "estimated_time": "13 min"
+        }
+      ]
+    },
+    {
+      "id": "vol4",
+      "title": "Volume IV — Streaming & Kafka",
+      "subtitle": "Structured Streaming, Kafka Integration, Watermarks",
+      "icon": "⚡",
+      "chapters": [
+        {
+          "id": "v4c1",
+          "title": "Structured Streaming Model",
+          "description": "Micro-batch vs continuous, trigger types, checkpointing, exactly-once semantics.",
+          "estimated_time": "18 min"
+        },
+        {
+          "id": "v4c2",
+          "title": "Kafka + Spark Integration",
+          "description": "Reading and writing Kafka topics, offset management, consumer groups, schema registry.",
+          "estimated_time": "17 min"
+        },
+        {
+          "id": "v4c3",
+          "title": "Stateful Streaming & Watermarks",
+          "description": "Aggregations over time, event time vs processing time, late data handling, watermarks.",
+          "estimated_time": "19 min"
+        }
+      ]
+    },
+    {
+      "id": "vol5",
+      "title": "Volume V — Performance Engineering",
+      "subtitle": "AQE, Skew Handling, Caching Strategy, Tuning",
+      "icon": "⚙️",
+      "chapters": [
+        {
+          "id": "v5c1",
+          "title": "Adaptive Query Execution (AQE)",
+          "description": "How AQE re-optimizes at runtime: skew join splits, dynamic coalescing, switch join strategies.",
+          "estimated_time": "14 min"
+        },
+        {
+          "id": "v5c2",
+          "title": "Handling Data Skew",
+          "description": "Salting, key isolation, broadcast small skewed tables, and AQE skew join detection.",
+          "estimated_time": "16 min"
+        },
+        {
+          "id": "v5c3",
+          "title": "Memory Tuning & Spill Prevention",
+          "description": "Executor memory regions, spark.memory.fraction, storage vs execution, OOM diagnosis.",
+          "estimated_time": "17 min"
+        },
+        {
+          "id": "v5c4",
+          "title": "Spark Configuration Cheatsheet",
+          "description": "The 20 configs that matter most at MAANG scale — with recommended values and reasoning.",
+          "estimated_time": "11 min"
+        }
+      ]
+    }
+  ]
+}

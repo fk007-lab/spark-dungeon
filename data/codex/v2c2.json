@@ -1,0 +1,132 @@
+{
+  "id": "v2c2",
+  "volume": "vol2",
+  "volume_title": "Volume II — DataFrames & Spark SQL",
+  "title": "Reading Query Plans",
+  "estimated_time": "14 min",
+  "sections": [
+    {
+      "title": "explain() — Your Most Powerful Tool",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<code>df.explain()</code> prints the physical execution plan Spark will run. Reading plans is the difference between a junior engineer who guesses at performance issues and a senior engineer who diagnoses them in 60 seconds. This chapter teaches you to read plans fluently."
+        },
+        {
+          "type": "table",
+          "headers": ["Mode", "Shows", "When to use"],
+          "rows": [
+            ["<code>explain()</code>", "Physical plan only", "Quick check — is this a broadcast join? Shuffles?"],
+            ["<code>explain('extended')</code>", "Parsed + analyzed + optimized logical + physical", "Debug Catalyst optimization — what changed?"],
+            ["<code>explain(mode='formatted')</code>", "Nicely indented physical plan with stats", "Recommended — most readable for humans"],
+            ["<code>explain(mode='cost')</code>", "Physical plan with CBO cost estimates", "When CBO is enabled — check estimated row counts"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Anatomy of a Physical Plan",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Plans are read <strong>bottom-up</strong> (leaves = input, root = final output). Indentation shows the tree structure."
+        },
+        {
+          "type": "code",
+          "content": "# Sample query\ndf.filter(col('salary') > 80000) \\\n  .join(broadcast(df_dept), 'dept_id') \\\n  .groupBy('dept_name') \\\n  .agg(avg('salary').alias('avg_sal')) \\\n  .explain(mode='formatted')\n\n# Physical plan (read bottom-up):\n# == Physical Plan ==\n# *(3) HashAggregate(key=[dept_name], functions=[avg(salary)])\n# +- Exchange hashpartitioning(dept_name, 200)          <- SHUFFLE 1 (for groupBy)\n#    +- *(2) HashAggregate(key=[dept_name], functions=[partial_avg(salary)])\n#       +- *(2) BroadcastHashJoin [dept_id], Inner, BuildRight\n#          :- *(2) Filter (salary > 80000)              <- predicates pushed below join\n#          :  +- *(2) FileScan parquet [salary, dept_id]\n#          +- BroadcastExchange                         <- small table broadcast, not shuffled\n#             +- *(1) FileScan parquet [dept_id, dept_name]"
+        },
+        {
+          "type": "table",
+          "headers": ["Plan node", "Meaning"],
+          "rows": [
+            ["<code>FileScan parquet [cols]</code>", "Reading Parquet files, columns listed = column pruning in effect"],
+            ["<code>Filter (predicate)</code>", "Predicate applied — if below join, pushdown worked"],
+            ["<code>Exchange hashpartitioning(col, N)</code>", "SHUFFLE — rows redistributed by hash(col) into N partitions"],
+            ["<code>Exchange RoundRobinPartitioning(N)</code>", "SHUFFLE — repartition(N) without a key"],
+            ["<code>Exchange rangepartitioning(col, N)</code>", "SHUFFLE — orderBy() range-partition for global sort"],
+            ["<code>BroadcastHashJoin</code>", "Zero-shuffle join — small table in memory"],
+            ["<code>SortMergeJoin</code>", "Two shuffles + sort: expensive"],
+            ["<code>HashAggregate (partial)</code>", "First phase aggregate — local to executor, before shuffle"],
+            ["<code>HashAggregate (final)</code>", "Second phase aggregate — after shuffle, computes final result"],
+            ["<code>*(N)</code> prefix", "Whole-stage codegen stage N — compiled to one JVM method"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "What to Look For in Plans",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "When reviewing a query plan, ask these questions in order:"
+        },
+        {
+          "type": "table",
+          "headers": ["Question", "What to look for", "If wrong"],
+          "rows": [
+            ["How many shuffles?", "Count Exchange nodes", "Each Exchange = full network transfer. Minimize them."],
+            ["Are filters pushed down?", "Filter nodes should be below Join nodes and as close to FileScan as possible", "Move filter() calls earlier in your code"],
+            ["Is column pruning working?", "FileScan should list only your needed columns", "Check for select(*) — avoid with wide tables"],
+            ["BroadcastHashJoin or SortMergeJoin?", "BHJ = good (zero shuffle). SMJ = expensive", "Is the small table within broadcast threshold? Explicit broadcast()?"],
+            ["Partial aggregate before shuffle?", "Should see HashAggregate (partial) BEFORE Exchange for groupBy", "If missing, Spark is shuffling all rows before aggregating"],
+            ["Any Python operators (no *(N))?", "UDFs without codegen show as non-prefixed nodes or ArrowEvalPython", "Replace UDF with built-in or pandas_udf"]
+          ]
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "<strong>The 30-second plan review routine (MAANG standard):</strong><br/>1. Count Exchange nodes → minimize shuffles<br/>2. Find Filter positions → should be at/near FileScan<br/>3. Check join type → BroadcastHashJoin preferred<br/>4. Look for ArrowEvalPython / EvalPython → UDF warning<br/>5. Check FileScan column list → column pruning active?"
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Exchange",
+      "definition": "Plan node representing a shuffle. <code>Exchange hashpartitioning(col, N)</code> = shuffle by key. Count Exchange nodes to count shuffles in your query."
+    },
+    {
+      "term": "HashAggregate (partial)",
+      "definition": "First phase of two-phase aggregation. Runs locally on each partition before shuffling — reduces shuffle data. If this is missing, Spark shuffled all rows before aggregating (expensive)."},
+    {
+      "term": "FileScan parquet [cols]",
+      "definition": "Parquet scan with column pruning. Only listed columns are read from disk. Wide scans (many columns) are a sign of missing select() early in the pipeline."
+    },
+    {
+      "term": "BroadcastExchange",
+      "definition": "Small table is broadcast — sent to all executors. Leads to BroadcastHashJoin. No shuffle for this side of the join."
+    },
+    {
+      "term": "EvalPython / ArrowEvalPython",
+      "definition": "Plan node for a Python UDF (EvalPython = row-by-row Pickle; ArrowEvalPython = pandas_udf). Either breaks whole-stage codegen and adds Python serialization."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "You see this in a physical plan: <code>Exchange hashpartitioning(user_id, 200)</code> appearing 3 times. What does this mean and what should you investigate?",
+      "options": [
+        "The query has 3 shuffles on user_id. Investigate if any can be eliminated with broadcast joins or by caching intermediate results",
+        "The query uses 3 partitions per executor — this is efficient",
+        "Spark is reading 3 separate Parquet files with 200 row groups each",
+        "This is normal — Catalyst always generates 3 Exchange nodes for correctness"
+      ],
+      "answer": 0,
+      "explanation": "3 Exchange nodes on the same user_id column means 3 separate shuffles of the same data. First check if any join can be broadcast instead. Then check if an intermediate result is reused — if so, cache() it after the first shuffle so subsequent operations read from cache instead of reshuffling raw data."
+    },
+    {
+      "type": "spot_the_bug",
+      "question": "You expected column pruning but the plan shows: <code>FileScan parquet [id, name, salary, dept, hire_date, region, manager_id, level, ...]</code> (all 30 columns). What went wrong?",
+      "code": "df = spark.read.parquet('s3://bucket/employees/')\ndf2 = df.withColumn('bonus', col('salary') * 0.1)\nresult = df2.select('id', 'name', 'bonus')",
+      "options": [
+        "select() only applies to the final output, not to the FileScan — you need a separate .select() before withColumn()",
+        "Catalyst should prune columns — this is a Spark bug and can't be fixed",
+        "The filter for column pruning needs col() syntax, not string column names",
+        "withColumn('bonus', col('salary') * 0.1) reads all columns because Spark doesn't know which columns bonus depends on"
+      ],
+      "answer": 0,
+      "explanation": "Catalyst DOES propagate column pruning through the full plan — in this case it should only read id, name, salary (needed for bonus computation). If you're seeing all 30 columns, double-check: is there a <code>df.cache()</code> or <code>df.rdd</code> call somewhere that forces a full scan? Or check Spark version — older versions had pruning bugs. In modern Spark 3.x this plan <em>should</em> show only 3 columns."
+    }
+  ]
+}

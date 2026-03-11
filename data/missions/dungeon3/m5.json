@@ -1,0 +1,98 @@
+{
+  "id": "d3_m5",
+  "dungeon_id": "dungeon3",
+  "order": 5,
+  "title": "The Quartile Master",
+  "topic": "NTILE() — performance quartile buckets",
+  "story": "The Tower's final trial: to be inducted into the Hall of Champions, warriors must be classified by performance tier. Compute total revenue per employee across all months, then divide them into four equal performance quartiles.",
+  "problem": "First aggregate total revenue per employee using groupBy('employee_id', 'region') with SUM('revenue') aliased as `total_revenue`. Then apply NTILE(4) over a window ordered by `total_revenue` ASC (no partitionBy) to add a `quartile` column (1=lowest, 4=highest). Select `employee_id`, `region`, `total_revenue`, `quartile`. Order by `total_revenue` ASC.",
+  "dataset": "sales.csv",
+  "hint": "Two steps: (1) groupBy + agg to get one row per employee with total_revenue. (2) Window for NTILE: Window.orderBy('total_revenue') — no partitionBy since you want global quartiles across all 8 employees.",
+  "concept": {
+    "explanation": "<code>NTILE(k)</code> divides the partition into <em>k</em> equal-sized buckets and assigns each row a bucket number 1 through k. If the row count isn't perfectly divisible, earlier buckets get one extra row. No <code>partitionBy</code> = entire DataFrame is one partition = global buckets.",
+    "example_code": "from pyspark.sql.window import Window\n\n# First aggregate: total per student\nstudent_totals = scores_df.groupBy('student_id') \\\n    .agg(F.sum('score').alias('total_score'))\n\n# Global quartiles — Window with no partitionBy\nntile_w = Window.orderBy('total_score')\n\nresult = student_totals.withColumn(\n    'quartile', F.ntile(4).over(ntile_w)\n)\n# Bottom 25% → quartile=1, Top 25% → quartile=4",
+    "output_note": "With 8 employees and NTILE(4): 2 per quartile. Ordered by total_revenue ASC: Q1=lowest earners, Q4=highest earners.",
+    "theory": [
+      {
+        "type": "heading",
+        "content": "NTILE: Bucketing Rows by Percentile"
+      },
+      {
+        "type": "text",
+        "content": "<code>NTILE(k)</code> divides rows within a partition into k roughly equal groups in ORDER BY sequence. When rows don't divide evenly, earlier buckets get the extra rows. Used for quartile/decile analysis, A/B testing segments, and percentile labeling."
+      },
+      {
+        "type": "table",
+        "headers": ["k value", "Buckets created", "Common name"],
+        "rows": [
+          ["2", "2 halves", "Median split"],
+          ["4", "Quartiles (Q1-Q4)", "Quartile analysis"],
+          ["5", "Quintiles", "Quintile analysis"],
+          ["10", "Deciles", "Decile grouping"],
+          ["100", "Percentiles", "Percentile rank"]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "# NTILE with partition (e.g., quartile within each region)\nregion_w = Window.partitionBy('region').orderBy('total_revenue')\ndf.withColumn('region_quartile', F.ntile(4).over(region_w))\n# Each region independently divided into 4 groups\n\n# Global (no partition): all records in one bucket assignment\nglobal_w = Window.orderBy('total_revenue')\ndf.withColumn('global_quartile', F.ntile(4).over(global_w))\n\n# NTILE vs percent_rank:\n# ntile(100) gives coarse percentile bands (100 tied groups)\n# percent_rank() gives exact 0.0-1.0 percentile score per row\ndf.withColumn('pct_rank', F.percent_rank().over(global_w))"
+      },
+      {
+        "type": "callout",
+        "variant": "info",
+        "content": "<strong>Two-step pattern:</strong> Window functions on aggregated data require two passes: (1) groupBy → aggregated DataFrame, (2) window function on top of that. You can't apply NTILE inside a groupBy — they're different operations."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "ntile(k)",
+        "glyph": "🎯",
+        "definition": "Divides partition rows into k equal-sized buckets, assigning bucket number 1..k to each row in ORDER BY sequence. When rows don't divide evenly, buckets 1 through (rows % k) get one extra row. Global ntile: Window.orderBy('col') with no partitionBy."
+      },
+      {
+        "term": "percent_rank()",
+        "glyph": "📊",
+        "definition": "Gives each row a 0.0-1.0 percentile score: (rank - 1) / (total_rows - 1). First row = 0.0, last row = 1.0. More precise than ntile() but harder to bucket directly. Multiply by 100 for intuitive percentile numbers."
+      },
+      {
+        "term": "Global Window",
+        "glyph": "🌐",
+        "definition": "Window.orderBy('col') with NO partitionBy(). The entire DataFrame is treated as one partition. All rows compete in the same ranking/bucketing. Use for global quartiles/deciles across the entire dataset."
+      },
+      {
+        "term": "Two-Step Aggregate",
+        "glyph": "2️⃣",
+        "definition": "Common pattern: (1) groupBy().agg() to collapse rows, then (2) .withColumn(window_func.over(window)) on the aggregated result. Can't mix groupBy and window functions in a single step — they operate on different granularities."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "You have 10 employees and use NTILE(4). How many employees are in quartile 1?",
+        "options": ["2", "3", "4", "2.5"],
+        "correct": 1,
+        "feedback": "10 / 4 = 2 remainder 2. Earlier buckets get the extra rows: Q1=3, Q2=3, Q3=2, Q4=2. So quartile 1 has 3 employees. The rule: earlier bucket numbers get the remainder rows first."
+      },
+      {
+        "question": "What happens if you use NTILE without any orderBy in the Window spec?",
+        "options": [
+          "Spark raises an AnalysisException",
+          "Each row gets a random quartile",
+          "All rows get quartile 1",
+          "Spark falls back to natural partition order — result is non-deterministic"
+        ],
+        "correct": 3,
+        "feedback": "Without orderBy, row assignment within the partition is non-deterministic (Spark doesn't guarantee order beyond partition boundaries). Your job may produce different results across runs. Always specify orderBy when using NTILE."
+      }
+    ]
+  },
+  "starter_code": "from pyspark.sql.window import Window\n\n# df is pre-loaded from sales.csv (columns: employee_id, region, month, revenue)\n\n# Step 1: Aggregate total revenue per employee\ntotals = df.groupBy('employee_id', 'region').agg(\n    F.sum('revenue').alias('total_revenue')\n)\n\n# Step 2: NTILE(4) — global quartiles ordered by total_revenue ASC\nntile_window = Window.orderBy(___)\n\nresult = (\n    totals.withColumn('quartile', F.ntile(4).over(ntile_window))\n          .select('employee_id', 'region', 'total_revenue', 'quartile')\n          .orderBy('total_revenue')\n)",
+  "expected": [
+    {"employee_id": 4, "region": "South", "total_revenue": 18500, "quartile": 1},
+    {"employee_id": 7, "region": "East",  "total_revenue": 33000, "quartile": 1},
+    {"employee_id": 2, "region": "North", "total_revenue": 35000, "quartile": 2},
+    {"employee_id": 6, "region": "East",  "total_revenue": 36500, "quartile": 2},
+    {"employee_id": 3, "region": "North", "total_revenue": 39000, "quartile": 3},
+    {"employee_id": 1, "region": "North", "total_revenue": 39500, "quartile": 3},
+    {"employee_id": 5, "region": "South", "total_revenue": 45500, "quartile": 4},
+    {"employee_id": 8, "region": "West",  "total_revenue": 61500, "quartile": 4}
+  ]
+}

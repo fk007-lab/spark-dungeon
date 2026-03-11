@@ -10,14 +10,129 @@
   "concept": {
     "explanation": "In SQL, HAVING filters groups after aggregation. In PySpark, chain a regular <code>.filter()</code> after <code>.agg()</code> — it works the same way. Use <code>F.col('aggregated_column_name')</code> to reference the new column created by <code>.alias()</code>.",
     "example_code": "# Example: keep only categories with total revenue > 100\nsales_df = spark.createDataFrame(\n    [('drinks', 120.0), ('snacks', 80.0), ('drinks', 50.0)],\n    ['category', 'revenue']\n)\n\nresult = (\n    sales_df.groupBy('category')\n    .agg(F.sum('revenue').alias('total_revenue'))\n    .filter(F.col('total_revenue') > 100)  # HAVING equivalent\n)\n# Only 'drinks' (170.0) passes the filter; snacks (80.0) is excluded.",
-    "output_note": "F.col() is needed here because 'total_revenue' is a computed alias, not an original column from the DataFrame."
+    "output_note": "F.col() is needed here because 'total_revenue' is a computed alias, not an original column from the DataFrame.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>Caching and persistence</strong>: <code>df.cache()</code> materializes a DataFrame in executor memory so subsequent actions reuse the computed result without re-executing the full lineage. Critical for iterative algorithms (ML model training) or when a DataFrame is used in multiple downstream operations."
+      },
+      {
+        "type": "heading",
+        "content": "Storage levels"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Level",
+          "What's stored",
+          "When to use"
+        ],
+        "rows": [
+          [
+            "<code>MEMORY_ONLY</code> (default)",
+            "Deserialized JVM objects in RAM",
+            "Enough memory, need fastest access"
+          ],
+          [
+            "<code>MEMORY_AND_DISK</code>",
+            "RAM first, spill to disk",
+            "Large DataFrames — safe default"
+          ],
+          [
+            "<code>MEMORY_ONLY_SER</code>",
+            "Serialized (smaller) in RAM",
+            "Tight memory, tolerate CPU cost of deser"
+          ],
+          [
+            "<code>DISK_ONLY</code>",
+            "Always on disk",
+            "Too large for memory, recompute expensive"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "from pyspark import StorageLevel\n\n# cache() = MEMORY_AND_DISK in modern Spark datasets\ndf_expensive = df.join(df_lookup, 'id').filter(col('active') == True)\ndf_expensive.cache()      # lazy — nothing happens yet\ndf_expensive.count()      # triggers materialization\n\n# Explicit storage level\ndf_expensive.persist(StorageLevel.MEMORY_AND_DISK)\n\n# Always unpersist when done to free executor memory\ndf_expensive.unpersist()\n\n# Check if cached\ndf_expensive.is_cached   # True / False\ndf_expensive.storageLevel # StorageLevel object"
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>cache() is lazy.</strong> Calling <code>df.cache()</code> alone does nothing — the DataFrame is only materialized when the first action (<code>count()</code>, <code>show()</code>, <code>write</code>) is executed. Always follow <code>cache()</code> with an action to pre-warm the cache."
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>Always call unpersist().</strong> Cached DataFrames hold executor memory until the SparkContext is stopped or the application is killed — unless you explicitly call <code>df.unpersist()</code>. Forgetting this is a common cause of executor OOM in long-running Spark applications."
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "At MAANG scale, prefer <strong>checkpointing</strong> over caching for very long lineage DAGs (100+ transformations). <code>df.checkpoint()</code> truncates the lineage and saves to HDFS/S3 — tolerant to executor failures unlike in-memory cache."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "cache()",
+        "definition": "Marks a DataFrame for reuse across multiple actions. Default storage level: <code>MEMORY_AND_DISK</code>. Lazy — materialized on first action. Must call <code>unpersist()</code> to free memory."
+      },
+      {
+        "term": "persist(StorageLevel)",
+        "definition": "Like cache() but with explicit storage level control. Options: MEMORY_ONLY, MEMORY_AND_DISK, DISK_ONLY, MEMORY_ONLY_SER, etc. Import from <code>pyspark import StorageLevel</code>."
+      },
+      {
+        "term": "DAG Lineage",
+        "definition": "Spark's record of all transformations from source to current DataFrame. On failure, Spark recomputes from last checkpoint. Long lineages are slow to retry — cache or checkpoint at key steps."
+      },
+      {
+        "term": "Checkpoint",
+        "definition": "<code>df.checkpoint()</code> materializes the DataFrame to disk (HDFS/S3) AND truncates the lineage DAG. Unlike cache(), survives executor failures. Required for iterative ML with many cycles."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "A DataFrame is used in 5 different downstream transformations. When is the optimal time to call cache()?",
+        "options": [
+          "Before the DataFrame is defined → cache() + lazy eval means it's computed once when first used",
+          "After defining the expensive DataFrame (joins, filters) but before the first action that uses it in multiple branches",
+          "After all 5 downstream operations complete — Spark retroactively caches it",
+          "cache() is only useful for RDDs, not DataFrames"
+        ],
+        "answer": 1,
+        "explanation": "Call <code>cache()</code> after defining the expensive DataFrame but before any action. Then run one action (like <code>count()</code>) to materialize it. All subsequent actions reuse the cached result. Caching before definition is meaningless (nothing to cache). Option C is wrong — Spark doesn't retroactively cache."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "An engineer 'caches' a DataFrame but the job runs just as slowly the second time. What's wrong?",
+        "code": "df_processed = df.join(df_lookup, 'id').filter(col('active')==True)\ndf_processed.cache()\n\n# ... later in the job ...\ndf_processed.groupBy('dept').count().show()\ndf_processed.groupBy('region').sum('revenue').show()",
+        "options": [
+          "cache() only applies to the first action — the second action recomputes from scratch",
+          "cache() is lazy — it was declared but no action was run immediately after it to materialize the cache. The first show() pays full cost AND caches simultaneously, so the second show() benefits but the first doesn't",
+          "You can't cache DataFrames that contain joins",
+          "cache() doesn't work with groupBy operations"
+        ],
+        "answer": 1,
+        "explanation": "The cache is <em>lazily materialized</em> on the first action — so the first <code>groupBy().count().show()</code> still pays the full join + filter cost (while also writing to cache). Only the second action benefits. Fix: add <code>df_processed.count()</code> immediately after <code>cache()</code> to pre-warm the cache before the first downstream action."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: group by department, sum salary as 'total_salary'\n# Keep only departments where total_salary > 250000\n# Order by total_salary descending\nresult = (\n    df.groupBy(___)\n    .agg(___)\n    .filter(___)\n    .orderBy(___)\n)",
-
   "expected": [
-    {"department": "Engineering", "total_salary": 575000},
-    {"department": "Finance",     "total_salary": 285000},
-    {"department": "Marketing",   "total_salary": 272000}
+    {
+      "department": "Engineering",
+      "total_salary": 575000
+    },
+    {
+      "department": "Finance",
+      "total_salary": 285000
+    },
+    {
+      "department": "Marketing",
+      "total_salary": 272000
+    }
   ],
   "hints": [
     "Chain .filter(F.col('total_salary') > 250000) after .agg() — this is the HAVING equivalent.",

@@ -10,26 +10,181 @@
   "concept": {
     "explanation": "<code>orderBy()</code> (also called <code>sort()</code>) sorts the DataFrame rows. By default it's ascending. Use <code>.desc()</code> on a column or pass <code>ascending=False</code> to flip it. You can sort by multiple columns — earlier ones take priority.",
     "example_code": "# Example: sort fruits by price, highest first\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8), ('Mango', 2.0)],\n    ['name', 'price']\n)\n\n# Option A: column method\nresult = fruits_df.orderBy(fruits_df.price.desc())\n\n# Option B: string + keyword argument\nresult = fruits_df.orderBy('price', ascending=False)\n# result order: Mango(2.0), Apple(1.5), Banana(0.8)",
-    "output_note": "Without .desc() or ascending=False the default is ascending (lowest first)."
+    "output_note": "Without .desc() or ascending=False the default is ascending (lowest first).",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>groupBy()</strong> partitions rows into groups by one or more columns, then <strong>agg()</strong> computes aggregate functions over each group — identical to SQL <code>GROUP BY</code>. In Spark's physical model, a <em>HashAggregate</em> runs in two phases: a partial aggregation on each executor (map side) followed by a final merge after a shuffle."
+      },
+      {
+        "type": "heading",
+        "content": "Aggregation functions (import from pyspark.sql.functions)"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Function",
+          "Description",
+          "SQL equivalent"
+        ],
+        "rows": [
+          [
+            "<code>count('*')</code>",
+            "Count all rows in group",
+            "<code>COUNT(*)</code>"
+          ],
+          [
+            "<code>sum('salary')</code>",
+            "Sum of a numeric column",
+            "<code>SUM(salary)</code>"
+          ],
+          [
+            "<code>avg('salary')</code>",
+            "Mean value",
+            "<code>AVG(salary)</code>"
+          ],
+          [
+            "<code>min() / max()</code>",
+            "Min / max in group",
+            "<code>MIN / MAX</code>"
+          ],
+          [
+            "<code>countDistinct('id')</code>",
+            "Exact distinct count",
+            "<code>COUNT(DISTINCT id)</code>"
+          ],
+          [
+            "<code>approx_count_distinct('id')</code>",
+            "HyperLogLog estimate (~5% error)",
+            "No SQL equivalent — much faster"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "from pyspark.sql.functions import count, avg, sum, max, min, countDistinct\n\n# employees per department\nresult = df.groupBy('department').agg(\n    count('*').alias('headcount'),\n    avg('salary').alias('avg_salary'),\n    max('salary').alias('max_salary')\n)\n\n# Multi-column groupBy\nresult = df.groupBy('department', 'job_level').agg(\n    sum('salary').alias('total_payroll'),\n    countDistinct('employee_id').alias('unique_employees')\n)"
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>countDistinct() triggers a full shuffle</strong> because Spark must collect all distinct values globally. At MAANG scale (billions of rows) use <code>approx_count_distinct()</code> with HyperLogLog — ~5% error but 10-100× faster with no shuffle overhead."
+      },
+      {
+        "type": "callout",
+        "style": "info",
+        "icon": "ℹ️",
+        "content": "<strong>Two-phase aggregation:</strong> Spark runs a partial aggregate per partition (executor-local, no network), then shuffles partition results to a final aggregate node. The intermediate shuffle only carries aggregated data per group — vastly smaller than shuffling raw rows."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "HashAggregate",
+        "definition": "Spark's physical aggregate operator. Uses a hash table to group rows in memory. Two phases: partial (per partition) → final (after shuffle merge)."
+      },
+      {
+        "term": "Partial Aggregate",
+        "definition": "First phase of groupBy: each executor pre-aggregates its own partition before shuffling. Dramatically reduces shuffle data."
+      },
+      {
+        "term": "countDistinct()",
+        "definition": "Exact distinct count — requires full shuffle of keys. Use <code>approx_count_distinct()</code> + HyperLogLog when exact precision isn't required (MAANG default for dashboards)."
+      },
+      {
+        "term": "Shuffle",
+        "definition": "Network transfer of rows between executors to co-locate records with the same group key. The most expensive operation in Spark — minimize shuffle count and size."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "You're building a real-time dashboard that needs to count distinct users per country across 2 billion events. Which approach is best?",
+        "options": [
+          "<code>df.groupBy('country').agg(countDistinct('user_id'))</code> — guarantees accuracy",
+          "<code>df.groupBy('country').agg(approx_count_distinct('user_id', 0.05))</code> — HyperLogLog with ~5% error",
+          "<code>df.groupBy('country').agg(sum('user_id'))</code> — sum is faster than count",
+          "<code>df.select('country','user_id').distinct().groupBy('country').count()</code>"
+        ],
+        "answer": 1,
+        "explanation": "<code>approx_count_distinct()</code> uses HyperLogLog++ — O(1) memory per group, no extra shuffle, &lt;5% error. At 2B events, exact <code>countDistinct</code> requires a full shuffle of all user IDs and may OOM. For dashboards, ~5% error is acceptable. Option D forces a full dedup shuffle before aggregating — worst of both worlds."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "This code should count employees per department but produces a confusing error:",
+        "code": "from pyspark.sql.functions import count\nresult = df.groupBy('department').count('*')",
+        "options": [
+          "count('*') should be count() with no arguments",
+          ".count() is a DataFrame shorthand — it counts all rows in the whole DataFrame, not per group. Use .agg(count('*')) after groupBy",
+          "The string '*' is invalid in PySpark — use count(lit(1)) instead",
+          "groupBy() requires .agg() before any column can be selected"
+        ],
+        "answer": 1,
+        "explanation": "<code>df.groupBy('dept').count()</code> (no args) is actually valid PySpark shorthand and does count per group. But <code>.count('*')</code> with an argument is wrong — the shorthand <code>count()</code> method on a RelationalGroupedDataset doesn't take arguments. Use <code>.agg(count('*').alias('n'))</code> for full control."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: sort by salary descending, then select name and salary\nresult = df.orderBy(___).select('name', 'salary')",
-
   "expected": [
-    {"name": "Oscar",   "salary": 130000},
-    {"name": "Frank",   "salary": 125000},
-    {"name": "Karl",    "salary": 115000},
-    {"name": "Carol",   "salary": 110000},
-    {"name": "Ivan",    "salary": 105000},
-    {"name": "Alice",   "salary": 95000},
-    {"name": "Laura",   "salary": 92000},
-    {"name": "Heidi",   "salary": 88000},
-    {"name": "Niaj",    "salary": 75000},
-    {"name": "Eve",     "salary": 70000},
-    {"name": "Judy",    "salary": 65000},
-    {"name": "Bob",     "salary": 62000},
-    {"name": "David",   "salary": 55000},
-    {"name": "Grace",   "salary": 52000},
-    {"name": "Mallory", "salary": 50000}
+    {
+      "name": "Oscar",
+      "salary": 130000
+    },
+    {
+      "name": "Frank",
+      "salary": 125000
+    },
+    {
+      "name": "Karl",
+      "salary": 115000
+    },
+    {
+      "name": "Carol",
+      "salary": 110000
+    },
+    {
+      "name": "Ivan",
+      "salary": 105000
+    },
+    {
+      "name": "Alice",
+      "salary": 95000
+    },
+    {
+      "name": "Laura",
+      "salary": 92000
+    },
+    {
+      "name": "Heidi",
+      "salary": 88000
+    },
+    {
+      "name": "Niaj",
+      "salary": 75000
+    },
+    {
+      "name": "Eve",
+      "salary": 70000
+    },
+    {
+      "name": "Judy",
+      "salary": 65000
+    },
+    {
+      "name": "Bob",
+      "salary": 62000
+    },
+    {
+      "name": "David",
+      "salary": 55000
+    },
+    {
+      "name": "Grace",
+      "salary": 52000
+    },
+    {
+      "name": "Mallory",
+      "salary": 50000
+    }
   ],
   "hints": [
     "Use df.orderBy(df.salary.desc()) to sort descending.",

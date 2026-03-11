@@ -1,0 +1,123 @@
+{
+  "id": "v3c2",
+  "volume": "vol3",
+  "volume_title": "Volume III — Storage & Formats",
+  "title": "Delta Lake & ACID on Spark",
+  "estimated_time": "20 min",
+  "sections": [
+    {
+      "title": "The Problem Delta Lake Solves",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Plain Parquet is immutable — you can't update or delete rows. Every write appends new files. Without a transaction layer you get: partial writes (job fails mid-write → corrupt data), no atomic updates, read inconsistency during concurrent writes, and no schema enforcement. Delta Lake solves all of this."
+        },
+        {
+          "type": "table",
+          "headers": ["ACID property", "What it means", "How Delta delivers it"],
+          "rows": [
+            ["Atomicity", "A write either fully succeeds or fully fails — no partial state", "Transaction log entries are written as a commit only after all data files are written"],
+            ["Consistency", "Schema is always valid — no mixed schemas mid-table", "Schema enforcement at write time; schema evolution via explicit ALTER"],
+            ["Isolation", "Concurrent readers and writers don't see each other's partial state", "Snapshot isolation — readers see a consistent snapshot, writers work in isolation"],
+            ["Durability", "Committed data is not lost even if the cluster crashes", "Data files + transaction log on durable object storage (S3, ADLS)"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "The Transaction Log (_delta_log)",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Every Delta table has a <code>_delta_log/</code> directory alongside the data files. Every transaction creates a JSON commit file recording what was added, removed, and what the new metadata is. The current state of the table = replaying all commits."
+        },
+        {
+          "type": "code",
+          "content": "# Delta table directory structure:\n# s3://bucket/my_table/\n# ├── _delta_log/\n# │   ├── 00000000000000000000.json   ← first write (adds part-0.parquet)\n# │   ├── 00000000000000000001.json   ← second write (adds part-1.parquet)\n# │   ├── 00000000000000000002.json   ← DELETE (removes part-0.parquet)\n# │   └── 00000000000000000010.json   ← checkpoint (snapshot of state at version 10)\n# ├── part-00000.parquet\n# ├── part-00001.parquet\n# └── ...\n\n# Every JSON commit contains:\n# { \"add\": { \"path\": \"part-001.parquet\", \"size\": 12345, \"stats\": {...} } }\n# { \"remove\": { \"path\": \"part-000.parquet\", \"deletionTimestamp\": 1700000000 } }\n# { \"metaData\": { \"schema\": \"...\", \"partitionColumns\": [...] } }"
+        },
+        {
+          "type": "callout",
+          "variant": "info",
+          "content": "Delta checkpoints every 10 commits by default (Parquet snapshot of the log state). This prevents Spark from replaying thousands of JSON files to reconstruct the current table state."
+        }
+      ]
+    },
+    {
+      "title": "Time Travel",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Because the entire modification history is in the transaction log, you can read any past version of the table. This is called <strong>time travel</strong>. Invaluable for debugging, auditing, and rolling back bad writes."
+        },
+        {
+          "type": "code",
+          "content": "# Read table at a specific version number\ndf_v3 = spark.read.format('delta') \\\n    .option('versionAsOf', 3) \\\n    .load('s3://bucket/my_table')\n\n# Read table as it was at a specific timestamp\ndf_yesterday = spark.read.format('delta') \\\n    .option('timestampAsOf', '2024-01-15 12:00:00') \\\n    .load('s3://bucket/my_table')\n\n# SQL syntax\nspark.sql(\"\"\"\n    SELECT * FROM my_delta_table VERSION AS OF 3\n\"\"\")\nspark.sql(\"\"\"\n    SELECT * FROM my_delta_table TIMESTAMP AS OF '2024-01-15'\n\"\"\")\n\n# View full history\nspark.sql('DESCRIBE HISTORY my_delta_table').show(truncate=False)"
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Time travel only works as long as the old data files haven't been vacuumed. Delta's default retention is 7 days. Run <code>VACUUM my_table RETAIN 168 HOURS</code> to enforce this."
+        }
+      ]
+    },
+    {
+      "title": "MERGE INTO — Upserts and CDC",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<code>MERGE INTO</code> is the most powerful Delta operation. It performs an upsert (update if exists, insert if not) in a single atomic transaction. This is the standard pattern for applying Change Data Capture (CDC) feeds from databases."
+        },
+        {
+          "type": "code",
+          "content": "# Apply a CDC feed (new updates) to a target Delta table\nfrom delta.tables import DeltaTable\n\ntarget = DeltaTable.forPath(spark, 's3://bucket/customers')\n\ntarget.alias('t').merge(\n    source=new_records_df.alias('s'),\n    condition='t.customer_id = s.customer_id'  # join key\n).whenMatchedUpdate(set={\n    't.name':       's.name',\n    't.email':      's.email',\n    't.updated_at': 's.updated_at'\n}).whenNotMatchedInsert(values={\n    'customer_id': 's.customer_id',\n    'name':        's.name',\n    'email':       's.email',\n    'updated_at':  's.updated_at'\n}).execute()\n\n# Can also add: .whenMatchedDelete(condition='s.is_deleted = true')"
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "_delta_log",
+      "glyph": "📜",
+      "definition": "Directory containing JSON commit files that record every change to a Delta table. Each commit lists added files, removed files, and metadata changes. The table's current state = replaying all commits. Checkpointed every 10 commits."
+    },
+    {
+      "term": "Snapshot Isolation",
+      "glyph": "📷",
+      "definition": "Delta's concurrency model: each reader sees a consistent point-in-time snapshot of the table even while writes are happening. Achieved via optimistic concurrency control — writers check for conflicts at commit time."
+    },
+    {
+      "term": "Time Travel",
+      "glyph": "⏳",
+      "definition": "Reading a Delta table at a past version or timestamp using .option('versionAsOf', N) or .option('timestampAsOf', 'date'). Works as long as old data files haven't been vacuumed (default 7-day retention)."
+    },
+    {
+      "term": "MERGE INTO",
+      "glyph": "🔀",
+      "definition": "Atomic upsert operation: UPDATE matched rows, INSERT new rows, optionally DELETE rows — all in one transaction. Primary tool for applying CDC feeds. Uses the Delta transaction log to ensure atomicity."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "After a bad batch ETL job corrupts the last 3 versions of your Delta table, what's the fastest recovery?",
+      "options": [
+        "Re-run the entire ETL from source",
+        "Use RESTORE TABLE my_table TO VERSION AS OF N (the last good version)",
+        "Delete all Parquet files and rebuild from scratch",
+        "Roll back using Git"
+      ],
+      "correct": 1,
+      "feedback": "Delta's RESTORE command re-writes the transaction log to point back to a previous version in a single atomic operation. This is one of the key Delta interview talking points — instant table restore without re-processing source data."
+    },
+    {
+      "question": "In a Delta MERGE INTO operation, what happens if the source has a row with customer_id=42, but the target table doesn't have customer_id=42?",
+      "options": [
+        "The row is silently dropped",
+        "The merge fails with an error",
+        "The whenNotMatchedInsert clause fires and inserts the row",
+        "The row is written to a quarantine table"
+      ],
+      "correct": 2,
+      "feedback": "MERGE INTO has three clauses for three cases: whenMatchedUpdate (row exists in both), whenNotMatchedInsert (row exists in source only), and whenMatchedDelete (optional — delete matched rows). The correct clause fires automatically based on the match condition."
+    }
+  ]
+}

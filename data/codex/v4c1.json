@@ -1,0 +1,125 @@
+{
+  "id": "v4c1",
+  "volume": "vol4",
+  "volume_title": "Volume IV — Streaming & Kafka",
+  "title": "Structured Streaming Model",
+  "estimated_time": "18 min",
+  "sections": [
+    {
+      "title": "The Unbounded Table Model",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Spark Structured Streaming treats an incoming data stream as an <strong>unbounded table</strong> — new rows are continuously appended. Queries are written identically to batch DataFrame queries; Spark handles the incremental execution automatically. This unification of batch and streaming is Spark's biggest advantage over older systems like Storm or Flink's low-level API."
+        },
+        {
+          "type": "table",
+          "headers": ["Concept", "Batch equivalent", "Streaming equivalent"],
+          "rows": [
+            ["Input", "File / Table read", "Streaming source (Kafka, files, socket)"],
+            ["Processing", "DataFrame transformations", "Same — .filter(), .groupBy(), .join()"],
+            ["Output", ".write.parquet()", ".writeStream.start()"],
+            ["Trigger", "Job runs once", "Runs continuously or on schedule"],
+            ["State", "No state between runs", "State store tracks aggregation state across micro-batches"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Trigger Types",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The trigger controls when Spark checks for new data and processes it. Choosing the wrong trigger is a common source of latency and cost issues."
+        },
+        {
+          "type": "code",
+          "content": "from pyspark.sql.streaming import DataStreamWriter\n\n# Default: start next micro-batch as soon as previous one finishes\nquery = df.writeStream.trigger()\n\n# Fixed interval: process every N seconds/minutes\nquery = df.writeStream.trigger(processingTime='30 seconds')\n\n# Once: process all available data then stop (batch-style backfill)\nquery = df.writeStream.trigger(once=True)\n\n# availableNow (Spark 3.3+): like Once but uses multiple micro-batches\n# Better for large backlogs — processes all available data incrementally\nquery = df.writeStream.trigger(availableNow=True)\n\n# Continuous processing (experimental): ~1ms latency, limited operations\nquery = df.writeStream.trigger(continuous='1 second')\n\n# Start the query\nquery = df.writeStream \\\n    .trigger(processingTime='1 minute') \\\n    .outputMode('append') \\\n    .format('delta') \\\n    .option('checkpointLocation', 's3://bucket/checkpoints/my_query') \\\n    .start('s3://bucket/output/')"
+        }
+      ]
+    },
+    {
+      "title": "Output Modes",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": ["Mode", "What gets written each micro-batch", "Use case"],
+          "rows": [
+            ["<code>append</code>", "Only NEW rows that were produced in this micro-batch", "Simple transformations, writes to append-only sinks (Kafka, files)"],
+            ["<code>update</code>", "Only CHANGED rows in the result table since the last batch", "Aggregations — only write updated aggregation values"],
+            ["<code>complete</code>", "Entire result table in every micro-batch", "Small result tables (e.g., top-10 leaderboards)"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Aggregations with <code>append</code> mode require a watermark — Spark needs to know when a window is closed before appending results. Use <code>update</code> or <code>complete</code> mode for aggregations without watermarks."
+        }
+      ]
+    },
+    {
+      "title": "Checkpointing: The Safety Net",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Checkpoints record two things: (1) the offsets of the last-processed message in each source partition, and (2) the serialized state store (for stateful aggregations). On restart after a failure, Spark replays from the last checkpoint — enabling <strong>exactly-once</strong> end-to-end semantics."
+        },
+        {
+          "type": "code",
+          "content": "# Checkpoint location is REQUIRED for production streaming queries\n# Must be a fault-tolerant location (HDFS, S3, ADLS — NOT local disk)\n\nquery = df.writeStream \\\n    .outputMode('append') \\\n    .format('delta') \\\n    .option('checkpointLocation', 's3://bucket/checkpoints/events_streaming') \\\n    .start('s3://bucket/output/events')\n\n# Monitor the query\nprint(query.status)    # {'message': 'Processing new data', 'isDataAvailable': True, ...}\nprint(query.lastProgress)  # Rich metrics: batchId, inputRowsPerSecond, processedRows...\n\n# Wait for termination (blocks until query stops or fails)\nquery.awaitTermination()\n\n# Stop gracefully\nquery.stop()"
+        },
+        {
+          "type": "callout",
+          "variant": "info",
+          "content": "<strong>Exactly-once guarantee:</strong> Requires both (1) a replayable source (Kafka tracks offsets, files track which files were read) and (2) an idempotent sink (Delta Lake writes with checkpoints). Kafka → Spark → Delta is the gold standard exactly-once pipeline."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Micro-batch",
+      "glyph": "⚡",
+      "definition": "Structured Streaming's default processing model. Collects new records since the last batch into a mini-DataFrame and processes it using the same Spark SQL engine. Latency typically 100ms–30s depending on trigger. Easier to reason about than continuous processing."
+    },
+    {
+      "term": "Checkpoint",
+      "glyph": "💾",
+      "definition": "Persistent record of (1) source offsets read so far and (2) state store snapshot. Stored in a fault-tolerant location (S3/HDFS). Enables Spark to restart exactly where it left off after a failure. Required for exactly-once semantics."
+    },
+    {
+      "term": "Output Mode",
+      "glyph": "📤",
+      "definition": "Controls which rows are written to the sink in each micro-batch. append: only new rows. update: only changed rows. complete: full result table. append is most common; complete is for small result tables (leaderboards, counts)."
+    },
+    {
+      "term": "availableNow",
+      "glyph": "🏃",
+      "definition": "Trigger mode (Spark 3.3+) that processes all data available at query start time, then stops — like a batch job but using streaming semantics (checkpoints, state). Better than trigger(once=True) for large backlogs."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You have a streaming query computing windowed counts: groupBy(window('ts', '5 minutes')).count(). When a window closes, you want to write final counts once and never update them. Which output mode?",
+      "options": [
+        "complete — writes all windows every batch",
+        "update — writes changed windows every batch",
+        "append — writes closed windows once (requires watermark)",
+        "overwrite — replaces the sink every batch"
+      ],
+      "correct": 2,
+      "feedback": "append mode writes each result row exactly once — when Spark determines the window is closed and will not receive late data. This requires a watermark to define when a window is 'closed'. Without a watermark Spark can never be sure no late data is coming, so append mode with aggregations requires a watermark."
+    },
+    {
+      "question": "Your streaming job fails. When it restarts, it reads from the checkpoint. Which guarantee does this provide?",
+      "options": [
+        "At-most-once: some messages may be skipped",
+        "At-least-once: some messages may be processed twice",
+        "Exactly-once: each message processed exactly once end-to-end",
+        "Best-effort: no strong guarantees"
+      ],
+      "correct": 2,
+      "feedback": "With a replayable source (Kafka) and an idempotent sink (Delta Lake), Spark's checkpoint provides exactly-once semantics. Spark replays from the last committed checkpoint offset, and Delta's transaction log prevents duplicate writes even if the same data arrives twice."
+    }
+  ]
+}

@@ -10,19 +10,143 @@
   "concept": {
     "explanation": "<code>filter()</code> (also called <code>where()</code>) keeps only rows where a condition is True — exactly like SQL WHERE. You can compare column values using <code>></code>, <code><</code>, <code>==</code>, <code>!=</code> and chain with <code>&</code> (AND) or <code>|</code> (OR).",
     "example_code": "# Example: keep only fruits that cost more than 1.0\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8), ('Mango', 2.0)],\n    ['name', 'price']\n)\n\n# Two equivalent ways to filter:\nresult = fruits_df.filter(fruits_df.price > 1.0)\n# OR:\nresult = fruits_df.where(fruits_df.price > 1.0)\n# result: Apple (1.5), Mango (2.0)",
-    "output_note": "Rows where the condition is False are dropped. Banana (0.8) does not appear."
+    "output_note": "Rows where the condition is False are dropped. Banana (0.8) does not appear.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>filter()</strong> (alias: <strong>where()</strong>) applies row-level predicates — equivalent to SQL <code>WHERE</code>. In Spark's execution model, filter predicates are pushed as early as possible in the DAG (<em>predicate pushdown</em>) and, for Parquet/ORC, are pushed all the way to the file reader to skip entire row groups."
+      },
+      {
+        "type": "heading",
+        "content": "Predicate syntax options"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Style",
+          "Code",
+          "Notes"
+        ],
+        "rows": [
+          [
+            "SQL string",
+            "<code>df.filter(\"salary > 80000\")</code>",
+            "Easiest to read; parsed by Spark SQL parser"
+          ],
+          [
+            "Column expression",
+            "<code>df.filter(col('salary') > 80000)</code>",
+            "Type-safe; composable with & | ~"
+          ],
+          [
+            "Attribute",
+            "<code>df.filter(df.salary > 80000)</code>",
+            "Short; beware of ambiguity across joins"
+          ],
+          [
+            "AND / OR",
+            "<code>df.filter((col('dept') == 'Eng') & (col('salary') > 80000))</code>",
+            "Always wrap each condition in parentheses!"
+          ]
+        ]
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "A common bug: <strong>using Python <code>and</code>/<code>or</code> instead of <code>&</code>/<code>|</code></strong>. Python's <code>and</code> on Column objects doesn't do element-wise comparison — it raises a <code>ValueError</code>. Always use <code>&</code> for AND and <code>|</code> for OR, and wrap each sub-expression in parentheses."
+      },
+      {
+        "type": "code",
+        "content": "# CORRECT: bitwise operators, parentheses\nresult = df.filter((col('dept') == 'Engineering') & (col('salary') > 80000))\n\n# WRONG: Python 'and' raises ValueError\n# result = df.filter(col('dept') == 'Engineering' and col('salary') > 80000)\n\n# Parquet predicate pushdown — Spark pushes salary > 80000\n# down to the file reader to skip entire row groups\ndf_parquet = spark.read.parquet('s3://bucket/employees/')\nresult = df_parquet.filter(col('salary') > 80000)"
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "At MAANG scale, place <code>filter()</code> as early as possible in your pipeline — before joins, groupBys, and window functions. Reducing row count early shrinks shuffle data and executor memory pressure."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "Predicate Pushdown",
+        "definition": "Catalyst optimization that moves filter conditions as close to the data source as possible — all the way to Parquet/ORC row-group statistics, skipping unneeded blocks without reading them."
+      },
+      {
+        "term": "Row Group",
+        "definition": "Parquet's horizontal partition (default 128 MB). Each row group stores min/max statistics per column. Filter predicates use these stats to skip entire groups."
+      },
+      {
+        "term": "& | ~ operators",
+        "definition": "PySpark's element-wise boolean operators for Column objects. Use <code>&</code> (AND), <code>|</code> (OR), <code>~</code> (NOT). Never use Python's <code>and</code>/<code>or</code>/<code>not</code>."
+      },
+      {
+        "term": "where() alias",
+        "definition": "<code>df.where()</code> is 100% identical to <code>df.filter()</code>. Both compile to the same logical plan node. Use whichever reads more like SQL to your team."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "Which of the following correctly filters rows where <code>dept</code> is <code>'Engineering'</code> AND <code>salary</code> is above 90000?",
+        "options": [
+          "<code>df.filter(col('dept') == 'Engineering' and col('salary') > 90000)</code>",
+          "<code>df.filter((col('dept') == 'Engineering') & (col('salary') > 90000))</code>",
+          "<code>df.filter(col('dept') == 'Engineering').filter(col('salary') > 90000)</code>",
+          "Both B and C are correct"
+        ],
+        "answer": 3,
+        "explanation": "Both B and C are valid. B uses a compound predicate in one filter (Catalyst will combine them). C chains two separate filter() calls, which Spark collapses into the same physical predicate. A is <em>wrong</em> — Python's <code>and</code> can't operate on Column objects."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "A senior engineer wrote this to filter active high-earners. Why is it wrong?",
+        "code": "result = df.filter(col('active') == True and col('salary') > 100000)",
+        "options": [
+          "col('active') == True should be col('active').isTrue()",
+          "Python's 'and' cannot be used with Column objects — raises ValueError",
+          "The salary threshold must be a float: 100000.0",
+          "filter() doesn't accept boolean columns directly"
+        ],
+        "answer": 1,
+        "explanation": "Python's <code>and</code> tries to evaluate both Column objects as Python booleans, which raises <code>ValueError: Cannot convert column into bool</code>. Use <code>&</code>: <code>df.filter((col('active') == True) & (col('salary') > 100000))</code>"
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: keep only employees whose salary > 80000, then select name and salary\nresult = df.filter(___).select('name', 'salary')",
-
   "expected": [
-    {"name": "Alice",  "salary": 95000},
-    {"name": "Carol",  "salary": 110000},
-    {"name": "Frank",  "salary": 125000},
-    {"name": "Heidi",  "salary": 88000},
-    {"name": "Ivan",   "salary": 105000},
-    {"name": "Karl",   "salary": 115000},
-    {"name": "Laura",  "salary": 92000},
-    {"name": "Oscar",  "salary": 130000}
+    {
+      "name": "Alice",
+      "salary": 95000
+    },
+    {
+      "name": "Carol",
+      "salary": 110000
+    },
+    {
+      "name": "Frank",
+      "salary": 125000
+    },
+    {
+      "name": "Heidi",
+      "salary": 88000
+    },
+    {
+      "name": "Ivan",
+      "salary": 105000
+    },
+    {
+      "name": "Karl",
+      "salary": 115000
+    },
+    {
+      "name": "Laura",
+      "salary": 92000
+    },
+    {
+      "name": "Oscar",
+      "salary": 130000
+    }
   ],
   "hints": [
     "Use df.filter(df.salary > 80000) or df.where(df.salary > 80000).",

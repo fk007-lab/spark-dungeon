@@ -1,0 +1,100 @@
+{
+  "id": "d3_m3",
+  "dungeon_id": "dungeon3",
+  "order": 3,
+  "title": "The Time Traveller",
+  "topic": "LAG() — month-over-month delta",
+  "story": "The Tower's third trial demands temporal vision. Look back one month for each employee and compute the change in their revenue. Employees who grew get a positive delta; those who regressed get negative.",
+  "problem": "Using the sales DataFrame, add `prev_revenue` using LAG(revenue, 1) partitioned by `employee_id`, ordered by `month`. Add `mom_diff` = revenue - prev_revenue. Keep only rows where `prev_revenue` IS NOT NULL. Select `employee_id`, `region`, `month`, `revenue`, `prev_revenue`, `mom_diff`. Order by `employee_id` ASC, `month` ASC.",
+  "dataset": "sales.csv",
+  "hint": "Window: Window.partitionBy('employee_id').orderBy('month'). LAG returns null for the first row in each partition (no previous month). Filter null away with .filter(F.col('prev_revenue').isNotNull()).",
+  "concept": {
+    "explanation": "<code>LAG(column, n)</code> returns the value of <code>column</code> from <em>n</em> rows before the current row within the partition. Default n=1. The first n rows in each partition return null (no previous rows). Perfect for month-over-month deltas, before/after comparisons, and sessionization.",
+    "example_code": "from pyspark.sql.window import Window\n\nprices_df = spark.createDataFrame(\n    [('AAPL', '2024-01', 150), ('AAPL', '2024-02', 165), ('AAPL', '2024-03', 158)],\n    ['ticker', 'month', 'price']\n)\n\n# Window: per ticker, ordered by month\nw = Window.partitionBy('ticker').orderBy('month')\n\nresult = (\n    prices_df\n    .withColumn('prev_price', F.lag('price', 1).over(w))\n    .withColumn('change', F.col('price') - F.col('prev_price'))\n    .filter(F.col('prev_price').isNotNull())\n)\n# 2024-02: prev=150, change=+15\n# 2024-03: prev=165, change=-7",
+    "output_note": "LAG returns null for the very first row in each partition (no previous month exists). Always filter these nulls unless you explicitly want to keep the initial rows.",
+    "theory": [
+      {
+        "type": "heading",
+        "content": "LAG and LEAD — Looking Across Rows"
+      },
+      {
+        "type": "text",
+        "content": "<code>LAG(col, n)</code> looks <em>back</em> n rows. <code>LEAD(col, n)</code> looks <em>forward</em> n rows. Both require an ordered window to define 'before' and 'after'."
+      },
+      {
+        "type": "table",
+        "headers": ["Function", "Direction", "Typical use case"],
+        "rows": [
+          ["<code>lag(col, 1)</code>", "Previous row", "Month-over-month delta, previous state comparison"],
+          ["<code>lag(col, 2)</code>", "2 rows back", "Quarter-over-quarter, 2-period moving comparison"],
+          ["<code>lead(col, 1)</code>", "Next row", "Days until next event, 'what happens after this'"],
+          ["<code>lead(col, 1, 0)</code>", "Next row with default", "Default value when no next row (last row in partition)"]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "# Both lag and lead accept a default value for null cases:\nw = Window.partitionBy('emp_id').orderBy('month')\n\n# Default 0 instead of null for first row:\ndf.withColumn('prev_rev', F.lag('revenue', 1, 0).over(w))\n\n# Lead — look forward:\ndf.withColumn('next_rev', F.lead('revenue', 1).over(w))\n\n# Combine both in one pass:\ndf.withColumn('prev', F.lag('revenue').over(w)) \\\n  .withColumn('nxt',  F.lead('revenue').over(w))"
+      },
+      {
+        "type": "callout",
+        "variant": "tip",
+        "content": "<strong>Sessionization pattern:</strong> LAG + cumulative SUM is the standard way to detect session boundaries. <code>is_new_session = (event_ts - lag(event_ts)) > 30_minutes</code> → <code>session_id = sum(is_new_session).over(running_window)</code>."
+      },
+      {
+        "type": "text",
+        "content": "LAG/LEAD produce a full shuffle — all rows for each employee must go to the same partition. Make sure <code>partitionBy('employee_id')</code> is included or every employee's data is sent to one partition."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "lag(col, n)",
+        "glyph": "⏪",
+        "definition": "Returns the value of 'col' from N rows BEFORE the current row in the ordered window. First N rows return null (or a specified default). F.lag('revenue', 1).over(w) gives previous month's revenue."
+      },
+      {
+        "term": "lead(col, n)",
+        "glyph": "⏩",
+        "definition": "Returns the value of 'col' from N rows AFTER the current row in the ordered window. Last N rows return null (or a specified default). F.lead('revenue', 1).over(w) gives next month's revenue."
+      },
+      {
+        "term": "isNotNull()",
+        "glyph": "✅",
+        "definition": "Column filter method: .filter(F.col('prev_revenue').isNotNull()). Removes null rows from the DataFrame. Opposite: .isNull(). In SQL: IS NOT NULL. Use after LAG to remove the first row per partition."
+      },
+      {
+        "term": "Month-over-Month",
+        "glyph": "📈",
+        "definition": "Standard analytics metric: (current_value - previous_period_value). With LAG: mom_diff = revenue - lag(revenue, 1).over(w). Compute percent change: (revenue - prev) / prev * 100."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Employee 7 has revenue 16500 in 2023-01 and 16500 in 2023-02. What is mom_diff for 2023-02?",
+        "options": ["-1", "0", "null", "16500"],
+        "correct": 1,
+        "feedback": "mom_diff = revenue - prev_revenue = 16500 - 16500 = 0. Zero growth — perfectly flat month-over-month. This is valid, not null."
+      },
+      {
+        "question": "For employee 1's first month (2023-01), what does LAG('revenue', 1) return?",
+        "options": ["0 (default)", "12000 (same row)", "null (no previous row)", "The last row in the dataset"],
+        "correct": 2,
+        "feedback": "LAG has no previous row to look at for the first row in a partition. It returns null by default. You can provide a custom default as a third argument: F.lag('revenue', 1, 0) returns 0 instead of null."
+      }
+    ]
+  },
+  "starter_code": "from pyspark.sql.window import Window\n\n# df is pre-loaded from sales.csv (columns: employee_id, region, month, revenue)\n\n# Define lag window: partition by employee_id, order by month\nlag_window = Window.partitionBy(___).orderBy(___)\n\nresult = (\n    df.withColumn('prev_revenue', F.lag('revenue', 1).over(lag_window))\n      .withColumn('mom_diff', F.col('revenue') - F.col('prev_revenue'))\n      .filter(___)  # Remove rows where prev_revenue IS NULL\n      .select('employee_id', 'region', 'month', 'revenue', 'prev_revenue', 'mom_diff')\n      .orderBy('employee_id', 'month')\n)",
+  "expected": [
+    {"employee_id": 1, "region": "North", "month": "2023-02", "revenue": 13500, "prev_revenue": 12000, "mom_diff": 1500},
+    {"employee_id": 1, "region": "North", "month": "2023-03", "revenue": 14000, "prev_revenue": 13500, "mom_diff": 500},
+    {"employee_id": 2, "region": "North", "month": "2023-02", "revenue": 17000, "prev_revenue": 18000, "mom_diff": -1000},
+    {"employee_id": 3, "region": "North", "month": "2023-02", "revenue": 21000, "prev_revenue": 18000, "mom_diff": 3000},
+    {"employee_id": 4, "region": "South", "month": "2023-02", "revenue": 9000, "prev_revenue": 9500, "mom_diff": -500},
+    {"employee_id": 5, "region": "South", "month": "2023-02", "revenue": 15500, "prev_revenue": 14000, "mom_diff": 1500},
+    {"employee_id": 5, "region": "South", "month": "2023-03", "revenue": 16000, "prev_revenue": 15500, "mom_diff": 500},
+    {"employee_id": 6, "region": "East", "month": "2023-02", "revenue": 12500, "prev_revenue": 11000, "mom_diff": 1500},
+    {"employee_id": 6, "region": "East", "month": "2023-03", "revenue": 13000, "prev_revenue": 12500, "mom_diff": 500},
+    {"employee_id": 7, "region": "East", "month": "2023-02", "revenue": 16500, "prev_revenue": 16500, "mom_diff": 0},
+    {"employee_id": 8, "region": "West", "month": "2023-02", "revenue": 22000, "prev_revenue": 20000, "mom_diff": 2000},
+    {"employee_id": 8, "region": "West", "month": "2023-03", "revenue": 19500, "prev_revenue": 22000, "mom_diff": -2500}
+  ]
+}

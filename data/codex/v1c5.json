@@ -1,0 +1,140 @@
+{
+  "id": "v1c5",
+  "volume": "vol1",
+  "volume_title": "Volume I — The Foundations of Spark",
+  "title": "The Shuffle — The Great Enemy",
+  "estimated_time": "18 min",
+  "sections": [
+    {
+      "title": "What is a Shuffle?",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A <strong>shuffle</strong> is a full redistribution of data across the network between Spark executors. Every row is hashed by its group/join key, and rows with the same hash are sent to the same output partition. This involves: disk writes (shuffle write), network transfer, and disk reads (shuffle read) — the three most expensive operations in distributed computing."
+        },
+        {
+          "type": "callout",
+          "style": "warning",
+          "icon": "⚠️",
+          "content": "<strong>Shuffle = disk write + network transfer + disk read.</strong> A job stuck at '99% complete' for hours is almost always waiting for one slow shuffle stage. Look at Spark UI → Stages → shuffle read/write metrics to diagnose."
+        }
+      ]
+    },
+    {
+      "title": "Sort-Merge Join Mechanics",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Sort-merge join (SMJ) is Spark's default join strategy for large tables. It executes in 3 phases:"
+        },
+        {
+          "type": "table",
+          "headers": ["Phase", "What happens", "Cost"],
+          "rows": [
+            ["1. Shuffle Write", "Each executor hashes rows by join key, writes to local shuffle files partitioned by output partition number", "CPU (hashing) + disk I/O"],
+            ["2. Network Transfer", "Each executor fetches the shuffle files it owns from all other executors", "Network bandwidth — the bottleneck"],
+            ["3. Sort + Merge", "Each executor sorts its received data by join key, then merges the two sorted streams", "CPU (sort) + memory (merge buffers)"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# Force explain to see join strategy\ndf_orders.join(df_customers, 'customer_id').explain(mode='formatted')\n\n# Output will show:\n# == Physical Plan ==\n# *(5) SortMergeJoin [customer_id], [customer_id], Inner\n# :- *(2) Sort [customer_id ASC]\n# :  +- Exchange hashpartitioning(customer_id, 200)\n# :     +- *(1) Filter ...\n# +- *(4) Sort [customer_id ASC]\n#    +- Exchange hashpartitioning(customer_id, 200)\n#       +- *(3) Filter ...\n\n# Exchange = shuffle. Two of them for SMJ."
+        }
+      ]
+    },
+    {
+      "title": "Reducing Shuffle Cost",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The four main strategies to reduce shuffle cost in production pipelines:"
+        },
+        {
+          "type": "table",
+          "headers": ["Strategy", "How it helps", "Trade-off"],
+          "rows": [
+            ["Broadcast join", "Zero shuffle for small table join", "Small table must fit in executor memory"],
+            ["Filter early", "Less data shuffled = less network traffic", "Can't always filter before join"],
+            ["Bucket tables", "Pre-shuffle and sort at write time (Hive tables). Same job avoids shuffle at read time.", "Extra write cost; tables must be co-bucketed"],
+            ["AQE dynamic coalescing", "Post-shuffle small partitions merged automatically (Spark 3.0+)", "Slight AQE overhead; not applicable to all cases"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# Broadcast join (zero shuffle)\nfrom pyspark.sql.functions import broadcast\nresult = large_df.join(broadcast(small_df), 'key')\n\n# Bucketed writes — pre-sort and hash for future joins (Hive/Delta tables)\nlarge_df.write \\\n    .bucketBy(200, 'customer_id') \\\n    .sortBy('customer_id') \\\n    .saveAsTable('orders_bucketed')\n\n# Reading two bucketed tables with same bucket column = no shuffle join\nspark.read.table('orders_bucketed').join(\n    spark.read.table('customers_bucketed'), 'customer_id'\n).explain()  # Should show BucketedHashJoin (no Exchange)"
+        }
+      ]
+    },
+    {
+      "title": "Data Skew — The Shuffle Killer",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<strong>Data skew</strong> occurs when one join/group key has disproportionately more rows than others. All rows with that key land on one executor partition — causing that one task to process 1000× more data than average. The job can't complete until this straggler finishes."
+        },
+        {
+          "type": "code",
+          "content": "# Diagnose skew: check key distribution\ndf.groupBy('customer_id').count() \\\n  .orderBy(col('count').desc()).show(10)\n# If top key has 80% of rows → severe skew\n\n# Fix 1: Use AQE skew join detection (Spark 3.0+)\nspark.conf.set('spark.sql.adaptive.skewJoin.enabled', 'true')\n# AQE automatically splits skewed partitions\n\n# Fix 2: Salt the key (manual skew fix)\nfrom pyspark.sql.functions import concat, lit, (col('rand')*10).cast('int').alias('salt')\ndf_salted = df.withColumn('salt', (rand() * 10).cast('int')) \\\n              .withColumn('join_key', concat(col('customer_id'), lit('_'), col('salt')))\n\n# Explode the small table to match all 10 salts\nfrom pyspark.sql.functions import explode, array\ndf_small_salted = df_small.withColumn('salt', explode(array(*[lit(i) for i in range(10)])))\\\n                          .withColumn('join_key', concat(col('customer_id'), lit('_'), col('salt')))\n\n# Join on salted key — rows distributed across 10 partitions per key\nresult = df_salted.join(df_small_salted, 'join_key')"
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "<strong>At MAANG:</strong> always check key skew before joining large tables. A simple <code>groupBy(key).count().orderBy(desc).show(5)</code> takes seconds but can save hours of debugging a stalled job. Set <code>spark.sql.adaptive.skewJoin.enabled=true</code> as a baseline for all production jobs."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Shuffle",
+      "definition": "Full network redistribution of data by hash of a key. Involves: shuffle write (disk), network transfer, shuffle read (disk + sort). Most expensive Spark operation."
+    },
+    {
+      "term": "Sort-Merge Join",
+      "definition": "Default Spark join for large tables. Two shuffles (one per table) + sort + merge. O(N log N) with 2× full data movement over network."
+    },
+    {
+      "term": "Data Skew",
+      "definition": "One partition key has disproportionately more rows. Causes one task to run 100-1000× longer than others — the straggler. Fix: AQE skewJoin, salting, or broadcast the skewed dimension."
+    },
+    {
+      "term": "Salting",
+      "definition": "Append a random suffix (0-N) to a skewed join key to distribute its rows across N partitions. Requires exploding the small table to match all N salt values."
+    },
+    {
+      "term": "Bucketing",
+      "definition": "Write strategy: pre-sort and hash data by a join column at write time. When two bucketed tables are joined on the same column with the same bucket count, Spark skips the shuffle entirely."
+    },
+    {
+      "term": "Exchange node",
+      "definition": "In a physical plan (explain output), an <code>Exchange hashpartitioning(...)</code> node = a shuffle. Counting Exchange nodes tells you how many shuffles a query has."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "A job joining two multi-TB tables is stuck at 99% for 3 hours. One task is processing 10 GB while all others processed ~50 MB. What is the most likely cause and fix?",
+      "options": [
+        "The cluster ran out of disk space — add more disk",
+        "Data skew: one join key value has millions of rows (e.g., null or 'unknown'). Fix: enable AQE skewJoin, use salting, or broadcast that key separately",
+        "The join strategy is wrong — switch to broadcast join",
+        "Too many shuffle partitions — reduce spark.sql.shuffle.partitions to 10"
+      ],
+      "answer": 1,
+      "explanation": "99% stuck with one massive task vs tiny others = classic data skew. A single join key (often null or a default value) has millions of rows that all land on one executor partition (one task). Fix: enable <code>spark.sql.adaptive.skewJoin.enabled=true</code> for automatic splitting, or manually salt the key. Broadcast join only helps if one table is small — not applicable to multi-TB case."
+    },
+    {
+      "type": "mcq",
+      "question": "Your Spark UI shows: Stage 1 (shuffle write): 500 GB written. Stage 2 (shuffle read): 500 GB read, takes 45 minutes. What should you investigate first?",
+      "options": [
+        "The network bandwidth — 500 GB transfer is expected to take 45 min",
+        "Whether a broadcast join is possible (small lookup table), or whether there is key skew causing one partition to receive most of the 500 GB",
+        "Increase executor memory to 64 GB to cache shuffle files",
+        "Increase spark.sql.shuffle.partitions to 2000"
+      ],
+      "answer": 1,
+      "explanation": "45 minutes for a shuffle stage needs investigation. First check: is one of the tables small enough for broadcast? (zero shuffle). Second: check the Spark UI task distribution — are a few tasks reading 100× more than others (key skew)? Third: are you shuffling 500 GB when you could filter first to reduce data? More partitions (option D) would help throughput but won't fix a fundamental shuffle-or-skew issue."
+    }
+  ]
+}

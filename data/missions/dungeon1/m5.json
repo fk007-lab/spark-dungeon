@@ -10,26 +10,185 @@
   "concept": {
     "explanation": "<code>withColumnRenamed(old, new)</code> renames a column. Only the name changes — the data is untouched. This is useful when column names come from source data with bad naming conventions and you need clean names for downstream operations.",
     "example_code": "# Example: rename 'item_price' to 'price'\nfruits_df = spark.createDataFrame(\n    [('Apple', 1.5), ('Banana', 0.8)],\n    ['item_name', 'item_price']\n)\n\nresult = fruits_df.withColumnRenamed('item_name', 'name') \\\n                  .withColumnRenamed('item_price', 'price')\n# Columns are now: name | price",
-    "output_note": "You can chain multiple withColumnRenamed() calls to rename several columns at once."
+    "output_note": "You can chain multiple withColumnRenamed() calls to rename several columns at once.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>orderBy()</strong> (alias: <strong>sort()</strong>) sorts the entire DataFrame by one or more columns. In Spark's distributed execution model, a global sort requires: (1) a sample pass to compute partition boundaries, (2) a range partition shuffle to route rows, (3) a local sort within each partition. This is <em>expensive</em> — avoid unnecessary sorts."
+      },
+      {
+        "type": "heading",
+        "content": "Sort control"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Syntax",
+          "Order",
+          "Notes"
+        ],
+        "rows": [
+          [
+            "<code>df.orderBy('salary')</code>",
+            "Ascending (default)",
+            "Single column"
+          ],
+          [
+            "<code>df.orderBy(col('salary').desc())</code>",
+            "Descending",
+            "Use <code>.desc()</code> method"
+          ],
+          [
+            "<code>df.orderBy(col('dept').asc(), col('salary').desc())</code>",
+            "Multi-column",
+            "Primary sort then secondary"
+          ],
+          [
+            "<code>df.orderBy(col('salary').desc_nulls_last())</code>",
+            "NULLs at end",
+            "Control NULL placement"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "from pyspark.sql.functions import col, desc\n\n# Top 5 earners\ntop5 = df.orderBy(col('salary').desc()).limit(5)\n\n# Sort by dept asc, then salary desc within dept\nresult = df.orderBy(col('department').asc(), col('salary').desc())\n\n# Equivalent: using desc() function instead of .desc() method\nresult = df.orderBy(desc('salary'))"
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>Global sort forces a full shuffle.</strong> In production pipelines, avoid <code>orderBy()</code> unless you truly need a globally sorted output file. For 'top N' patterns always pair with <code>.limit(N)</code> so Spark can optimize away most data movement. If you only need sorted output per partition, use <code>sortWithinPartitions()</code> — zero shuffle cost."
+      },
+      {
+        "type": "callout",
+        "style": "tip",
+        "icon": "💡",
+        "content": "<strong>At MAANG scale</strong>, the typical pattern is: early filter → groupBy/agg → <code>orderBy(...).limit(N)</code> for ranking. Adding <code>.limit(N)</code> after <code>orderBy()</code> lets Catalyst push the limit up and avoid a full global sort of every partition."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "Range Partition",
+        "definition": "The shuffle type used by <code>orderBy()</code>. Spark samples the data to estimate value distribution, then assigns each row to a partition covering a value range — ensuring globally sorted output."
+      },
+      {
+        "term": "sortWithinPartitions()",
+        "definition": "Sorts rows within each partition locally — zero shuffle cost. Use when downstream consumers process one partition at a time (e.g., writing sorted Parquet files)."
+      },
+      {
+        "term": ".desc() / .asc()",
+        "definition": "Column methods to control sort order. <code>col('salary').desc()</code> sorts largest first. <code>.desc_nulls_last()</code> / <code>.asc_nulls_first()</code> control NULL placement."
+      },
+      {
+        "term": "limit(N)",
+        "definition": "Truncates output to N rows. When combined with <code>orderBy()</code>, Catalyst may optimize to a top-K algorithm (heap sort) that avoids a full sort of all partitions."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "You need the top 10 highest-paid employees from a 500 million row DataFrame. Which is the most performant?",
+        "options": [
+          "<code>df.orderBy(col('salary').desc()).limit(10)</code>",
+          "<code>df.limit(10).orderBy(col('salary').desc())</code>",
+          "<code>df.sort(col('salary').desc()).show(10)</code>",
+          "<code>df.filter(col('salary') > 200000).orderBy(col('salary').desc())</code>"
+        ],
+        "answer": 0,
+        "explanation": "A: <code>orderBy().limit()</code> lets Catalyst optimize with a top-K approach — it can find the top 10 without a full sort of all 500M rows. B is wrong — limit(10) first gives you arbitrary 10 rows, then sorts them. C sorts all 500M rows to find 10 to show (no plan optimization). D only works if you can filter first, but still does a full sort of filtered results."
+      },
+      {
+        "type": "mcq",
+        "question": "You're writing a daily Parquet export that must be sorted by <code>user_id</code> within each partition file for efficient downstream reads, but global sort order doesn't matter. What should you use?",
+        "options": [
+          "<code>df.orderBy('user_id')</code> — only correct option",
+          "<code>df.sortWithinPartitions('user_id')</code> — sorts locally, no shuffle",
+          "<code>df.repartition(200, 'user_id').orderBy('user_id')</code>",
+          "<code>df.sort('user_id').coalesce(200)</code>"
+        ],
+        "answer": 1,
+        "explanation": "<code>sortWithinPartitions()</code> sorts rows within each existing partition — zero shuffle cost, zero network transfer. Perfect when readers process files independently (e.g., binary search within a Parquet file). <code>orderBy()</code> forces a global range-partition shuffle — expensive and unnecessary here."
+      }
+    ]
   },
   "starter_code": "# df is pre-loaded from employees.csv\n# TODO: rename 'department' to 'dept', then select name, dept, salary\nresult = df.withColumnRenamed(___, ___).select(___)",
-
   "expected": [
-    {"name": "Alice",   "dept": "Engineering", "salary": 95000},
-    {"name": "Bob",     "dept": "Marketing",   "salary": 62000},
-    {"name": "Carol",   "dept": "Engineering", "salary": 110000},
-    {"name": "David",   "dept": "HR",          "salary": 55000},
-    {"name": "Eve",     "dept": "Marketing",   "salary": 70000},
-    {"name": "Frank",   "dept": "Engineering", "salary": 125000},
-    {"name": "Grace",   "dept": "HR",          "salary": 52000},
-    {"name": "Heidi",   "dept": "Finance",     "salary": 88000},
-    {"name": "Ivan",    "dept": "Finance",     "salary": 105000},
-    {"name": "Judy",    "dept": "Marketing",   "salary": 65000},
-    {"name": "Karl",    "dept": "Engineering", "salary": 115000},
-    {"name": "Laura",   "dept": "Finance",     "salary": 92000},
-    {"name": "Mallory", "dept": "HR",          "salary": 50000},
-    {"name": "Niaj",    "dept": "Marketing",   "salary": 75000},
-    {"name": "Oscar",   "dept": "Engineering", "salary": 130000}
+    {
+      "name": "Alice",
+      "dept": "Engineering",
+      "salary": 95000
+    },
+    {
+      "name": "Bob",
+      "dept": "Marketing",
+      "salary": 62000
+    },
+    {
+      "name": "Carol",
+      "dept": "Engineering",
+      "salary": 110000
+    },
+    {
+      "name": "David",
+      "dept": "HR",
+      "salary": 55000
+    },
+    {
+      "name": "Eve",
+      "dept": "Marketing",
+      "salary": 70000
+    },
+    {
+      "name": "Frank",
+      "dept": "Engineering",
+      "salary": 125000
+    },
+    {
+      "name": "Grace",
+      "dept": "HR",
+      "salary": 52000
+    },
+    {
+      "name": "Heidi",
+      "dept": "Finance",
+      "salary": 88000
+    },
+    {
+      "name": "Ivan",
+      "dept": "Finance",
+      "salary": 105000
+    },
+    {
+      "name": "Judy",
+      "dept": "Marketing",
+      "salary": 65000
+    },
+    {
+      "name": "Karl",
+      "dept": "Engineering",
+      "salary": 115000
+    },
+    {
+      "name": "Laura",
+      "dept": "Finance",
+      "salary": 92000
+    },
+    {
+      "name": "Mallory",
+      "dept": "HR",
+      "salary": 50000
+    },
+    {
+      "name": "Niaj",
+      "dept": "Marketing",
+      "salary": 75000
+    },
+    {
+      "name": "Oscar",
+      "dept": "Engineering",
+      "salary": 130000
+    }
   ],
   "hints": [
     "Use df.withColumnRenamed('department', 'dept') to rename the column.",

@@ -1,0 +1,122 @@
+{
+  "id": "v5c4",
+  "volume": "vol5",
+  "volume_title": "Volume V — Performance Engineering",
+  "title": "Spark Configuration Cheatsheet",
+  "estimated_time": "11 min",
+  "sections": [
+    {
+      "title": "The 20 Configs That Matter Most",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Hundreds of configs exist but 20 cover 95% of real-world tuning problems. Memorize these — they appear in system design interviews and production debugging sessions constantly."
+        },
+        {
+          "type": "table",
+          "headers": ["Config", "Default", "Recommended (8-executor, 16g cluster)", "What it controls"],
+          "rows": [
+            ["<code>spark.executor.memory</code>", "1g", "12g–16g", "JVM heap per executor"],
+            ["<code>spark.executor.cores</code>", "1", "4–5", "Tasks per executor (max concurrency)"],
+            ["<code>spark.executor.instances</code>", "2", "8–20", "Number of executor processes"],
+            ["<code>spark.driver.memory</code>", "1g", "4g–8g", "Driver JVM heap"],
+            ["<code>spark.sql.shuffle.partitions</code>", "200", "N_cores × 2–4 (or AQE)", "Output partitions of wide transformations"],
+            ["<code>spark.default.parallelism</code>", "Cluster cores", "N_cores × 2–3", "Default partitions for RDD operations"],
+            ["<code>spark.sql.adaptive.enabled</code>", "true (3.x)", "true", "Enable AQE runtime reoptimization"],
+            ["<code>spark.sql.autoBroadcastJoinThreshold</code>", "10MB", "50MB–256MB", "Max size to auto-broadcast a join side"],
+            ["<code>spark.memory.fraction</code>", "0.6", "0.65–0.75", "Fraction of executor heap for Spark memory"],
+            ["<code>spark.memory.storageFraction</code>", "0.5", "0.3–0.5", "Fraction of unified memory reserved for cache"],
+            ["<code>spark.serializer</code>", "Java", "org.apache.spark.serializer.KryoSerializer", "Serialization (Kryo is 10x faster/smaller)"],
+            ["<code>spark.sql.files.maxPartitionBytes</code>", "128MB", "128MB–256MB", "Max bytes per input partition when reading"],
+            ["<code>spark.sql.files.openCostInBytes</code>", "4MB", "4MB", "Estimated cost of opening a file"],
+            ["<code>spark.network.timeout</code>", "120s", "300s–600s", "Timeout for network communications"],
+            ["<code>spark.sql.broadcastTimeout</code>", "300s", "600s", "Timeout for broadcast joins to complete"],
+            ["<code>spark.sql.adaptive.skewJoin.enabled</code>", "true", "true", "AQE skew join detection"],
+            ["<code>spark.sql.adaptive.coalescePartitions.enabled</code>", "true", "true", "AQE dynamic partition coalescing"],
+            ["<code>spark.cleaner.referenceTracking.cleanCheckpoints</code>", "false", "true", "Auto-clean old checkpoints"],
+            ["<code>spark.sql.parquet.mergeSchema</code>", "false", "false", "Never auto-merge schemas (expensive)"],
+            ["<code>spark.dynamicAllocation.enabled</code>", "false", "true (YARN/K8s)", "Scale executor count based on workload"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Join Configs",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "# ── Join optimization configs ──\n\n# Raise broadcast threshold for better auto-broadcast decisions\nspark.conf.set('spark.sql.autoBroadcastJoinThreshold', 100 * 1024 * 1024)  # 100 MB\n\n# Give broadcasts more time (large clusters with high network latency)\nspark.conf.set('spark.sql.broadcastTimeout', 600)  # 10 minutes\n\n# Preferred sort merge join block size (controls read buffer)\nspark.conf.set('spark.sql.sortMergeJoinExec.buffer.spillThreshold', '1g')\n\n# Disable SMJ bucket cache to force re-reading (debug only)\nspark.conf.set('spark.sql.bucketing.enabled', 'true')  # enable bucketed joins"
+        }
+      ]
+    },
+    {
+      "title": "Partition Sizing Rules",
+      "blocks": [
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "<strong>Goldilocks principle for partitions:</strong> Too few = not enough parallelism, large tasks, OOMs. Too many = scheduling overhead, tiny tasks, driver memory pressure. Target: 128-512 MB per partition, 2-4 tasks per CPU core."
+        },
+        {
+          "type": "code",
+          "content": "# Partition sizing formula:\n# ideal_partitions = total_data_size / target_partition_size\n# Then: max(ideal, num_cpus * 2)\n\n# Example: 1 TB data, 100 cores\ntotal_gb = 1000\ntarget_mb = 256\nideal = int(total_gb * 1024 / target_mb)  # → 4000 partitions\nfinal = max(ideal, 100 * 2)  # → 4000 (use the larger)\n\nspark.conf.set('spark.sql.shuffle.partitions', str(final))\n\n# Input partition size (when reading files)\nspark.conf.set('spark.sql.files.maxPartitionBytes', 256 * 1024 * 1024)  # 256 MB\n\n# Number of initial partitions when reading without explicit repartition\nspark.conf.set('spark.default.parallelism', str(100 * 3))  # 3x cores"
+        }
+      ]
+    },
+    {
+      "title": "Serialization & Network Configs",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "# Enable Kryo serializer — faster, smaller than Java default\nspark.conf.set('spark.serializer', 'org.apache.spark.serializer.KryoSerializer')\nspark.conf.set('spark.kryo.registrationRequired', 'false')  # auto-register\n# Register custom classes for maximum Kryo perf:\nspark.conf.set('spark.kryo.classesToRegister', 'com.mycompany.MyClass')\n\n# Network timeouts — increase for large clusters or slow networks\nspark.conf.set('spark.network.timeout', '400s')\nspark.conf.set('spark.executor.heartbeatInterval', '30s')  # must be < network.timeout\n\n# Shuffle compression (default: lz4 — fast)\nspark.conf.set('spark.shuffle.compress', 'true')\nspark.conf.set('spark.io.compression.codec', 'lz4')  # lz4 (fast) or zstd (better ratio)"
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "spark.sql.shuffle.partitions",
+      "glyph": "🔢",
+      "definition": "Number of partitions created after wide transformations (groupBy, join, distinct). Default 200. Too low = large partitions, OOM. Too high = tiny partitions, overhead. Rule: set to 2-4x number of CPU cores, or let AQE coalesce dynamically."
+    },
+    {
+      "term": "KryoSerializer",
+      "glyph": "🏎️",
+      "definition": "Alternative JVM serializer, 10x faster and produces 5x smaller objects than Java serialization. Enable: spark.serializer = org.apache.spark.serializer.KryoSerializer. Especially impactful for RDD operations and BroadcastHashJoin."
+    },
+    {
+      "term": "dynamicAllocation",
+      "glyph": "📈",
+      "definition": "Spark scales executor count up/down based on pending task queue. spark.dynamicAllocation.enabled=true with YARN or Kubernetes. Idle executors are released; new executors requested when queue builds. Cost-efficient for variable workloads."
+    },
+    {
+      "term": "spark.executor.cores",
+      "glyph": "⚙️",
+      "definition": "Number of tasks an executor can run concurrently. Default 1. Recommended: 4-5. Higher cores → better CPU utilization but more GC pressure per executor (more objects per heap). Rule: never exceed 5 cores per executor."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "You're configuring a PySpark job for a 20-node cluster with 16 cores and 64 GB RAM each. What's a reasonable spark.sql.shuffle.partitions setting?",
+      "options": [
+        "200 (default)",
+        "20 (one per node)",
+        "320 (16 cores × 20 nodes × 1) or 640 (2x rule)",
+        "10000 (more is always better)"
+      ],
+      "correct": 2,
+      "feedback": "Total cluster cores = 320. Rule: 1-4x total cores. With AQE enabled, you can set 640 (2x) knowing AQE will coalesce small ones. Without AQE, 320 is safe. 200 is too low for 320 cores — many cores idle waiting. 10000 creates excessive overhead."
+    },
+    {
+      "question": "A job reads a 1 TB Parquet table. You see on the Spark UI that all 8000 input tasks are 128 KB each with 2ms duration. What config should you change?",
+      "options": [
+        "Increase spark.sql.shuffle.partitions",
+        "Increase spark.sql.files.maxPartitionBytes from default 128 MB to 512 MB",
+        "Enable Kryo serialization",
+        "Decrease spark.executor.cores"
+      ],
+      "correct": 1,
+      "feedback": "8000 tasks of 128 KB means Spark is creating one task per tiny file (or using a very small file split). Increasing maxPartitionBytes merges multiple small files into one partition → fewer, larger tasks → less scheduling overhead. This is the small file problem manifesting as excessive task count."
+    }
+  ]
+}

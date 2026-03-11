@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}{{ chapter.title }} — The Codex{% endblock %}
+
+{% block content %}
+<div class="codex-chapter-page">
+
+  <div class="codex-ch-header">
+    <a href="/codex" class="codex-ch-back">← Back to Codex</a>
+    <p class="codex-ch-page-meta">{{ chapter.volume_title }} · ⏱ {{ chapter.estimated_time }}</p>
+    <h1 class="codex-ch-page-title">{{ chapter.title }}</h1>
+  </div>
+
+  <!-- Chapter sections -->
+  {% for section in chapter.sections %}
+  <div class="codex-section">
+    <h3 class="codex-section-title">{{ section.title }}</h3>
+    {% for block in section.blocks %}
+      {% if block.type == "text" %}
+        <p class="theory-text">{{ block.content | safe }}</p>
+      {% elif block.type == "heading" %}
+        <h4 class="theory-heading">{{ block.content }}</h4>
+      {% elif block.type == "table" %}
+        <div class="table-scroll theory-table-wrap">
+          <table class="theory-table">
+            <thead><tr>{% for h in block.headers %}<th>{{ h | safe }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in block.rows %}<tr>{% for cell in row %}<td>{{ cell | safe }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table>
+        </div>
+      {% elif block.type == "code" %}
+        <pre class="theory-code">{{ block.content }}</pre>
+      {% elif block.type == "callout" %}
+        <div class="theory-callout theory-callout-{{ block.style | default('info') }}">
+          <span class="callout-icon">{{ block.icon | default('💡') }}</span>
+          <span>{{ block.content | safe }}</span>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <!-- Rune Cards -->
+  {% if chapter.rune_cards %}
+  <div class="codex-section">
+    <h3 class="codex-section-title">🃏 Rune Cards — Key Terms</h3>
+    <div class="rune-cards-grid">
+      {% for card in chapter.rune_cards %}
+      <div class="rune-card" onclick="this.classList.toggle('flipped')">
+        <div class="rune-card-inner">
+          <div class="rune-card-front">
+            <span class="rune-glyph">᚛</span>
+            <span class="rune-term">{{ card.term }}</span>
+            <span class="rune-flip-hint">tap to reveal</span>
+          </div>
+          <div class="rune-card-back">
+            <p class="rune-def">{{ card.definition | safe }}</p>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Oracle Quiz -->
+  {% if chapter.quiz %}
+  <div class="codex-section">
+    <h3 class="codex-section-title">🔮 Oracle Quiz</h3>
+    <div class="oracle-quiz">
+      {% for q in chapter.quiz %}
+      <div class="quiz-question" id="qq-{{ loop.index }}">
+        <p class="quiz-q-text"><span class="quiz-num">Q{{ loop.index }}.</span> {{ q.question | safe }}</p>
+        {% if q.type == "mcq" %}
+        <div class="quiz-options">
+          {% for opt in q.options %}
+          <button class="quiz-opt" onclick="answerMCQ(this, {{ loop.index0 }}, {{ q.answer }}, 'qq-{{ loop.index }}')" data-idx="{{ loop.index0 }}">
+            <span class="quiz-opt-letter">{{ ['A','B','C','D'][loop.index0] }}</span> {{ opt | safe }}
+          </button>
+          {% endfor %}
+        </div>
+        {% elif q.type == "spot_the_bug" %}
+        <pre class="quiz-code-block">{{ q.code }}</pre>
+        <div class="quiz-options">
+          {% for opt in q.options %}
+          <button class="quiz-opt" onclick="answerMCQ(this, {{ loop.index0 }}, {{ q.answer }}, 'qq-{{ loop.index }}')" data-idx="{{ loop.index0 }}">
+            <span class="quiz-opt-letter">{{ ['A','B','C','D'][loop.index0] }}</span> {{ opt | safe }}
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="quiz-feedback" id="qf-{{ loop.index }}" style="display:none">
+          <span class="qf-icon"></span>
+          <span class="qf-text">{{ q.explanation | safe }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function answerMCQ(btn, idx, correctIdx, questionId) {
+  const qBlock = document.getElementById(questionId);
+  if (qBlock.dataset.answered) return;
+  qBlock.dataset.answered = '1';
+  const opts = qBlock.querySelectorAll('.quiz-opt');
+  opts.forEach((o, i) => {
+    o.disabled = true;
+    if (i === correctIdx) o.classList.add('correct');
+    else if (i === idx && idx !== correctIdx) o.classList.add('wrong');
+  });
+  const numPart = questionId.split('-')[1];
+  const fb = document.getElementById('qf-' + numPart);
+  if (fb) {
+    fb.style.display = 'flex';
+    fb.querySelector('.qf-icon').textContent = idx === correctIdx ? '✅' : '❌';
+    fb.classList.add(idx === correctIdx ? 'correct' : 'wrong');
+  }
+}
+</script>
+{% endblock %}

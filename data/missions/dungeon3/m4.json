@@ -1,0 +1,109 @@
+{
+  "id": "d3_m4",
+  "dungeon_id": "dungeon3",
+  "order": 4,
+  "title": "The Accumulator",
+  "topic": "Running totals with SUM() over a window frame",
+  "story": "The Tower's fourth trial: as each month passes, a warrior's total earnings grow. Track the running total — the cumulative sum of each employee's revenue from their first month to the current one.",
+  "problem": "Using the sales DataFrame, compute a `cumulative_revenue` column: the running total of each employee's revenue from their first month up to and including the current row. Use a window frame from unboundedPreceding to currentRow, partitioned by `employee_id`, ordered by `month`. Select `employee_id`, `region`, `month`, `revenue`, `cumulative_revenue`. Order by `employee_id` ASC, `month` ASC.",
+  "dataset": "sales.csv",
+  "hint": "Running total = SUM over a window with rowsBetween(Window.unboundedPreceding, 0). The frame 0 means Window.currentRow. Partition by employee_id so each employee's total starts fresh.",
+  "concept": {
+    "explanation": "A <strong>running total</strong> (cumulative sum) adds up all values from the start of the partition up to the current row. Use <code>F.sum('col').over(window_with_frame)</code> where the frame is <code>rowsBetween(Window.unboundedPreceding, 0)</code>. This means: 'sum from start of partition to current row (inclusive)'.",
+    "example_code": "from pyspark.sql.window import Window\n\n# Running total of stock price changes\nw = (Window.partitionBy('ticker')\n           .orderBy('date')\n           .rowsBetween(Window.unboundedPreceding, 0))\n\ndf.withColumn(\n    'cumulative_gain',\n    F.sum('daily_change').over(w)\n)",
+    "output_note": "rowsBetween(unboundedPreceding, 0): start = beginning of partition, end = current row (position 0). The result grows monotonically for positive values.",
+    "theory": [
+      {
+        "type": "heading",
+        "content": "Window Frames: The Hidden Power"
+      },
+      {
+        "type": "text",
+        "content": "A window frame defines <em>which rows within the partition</em> are included in each row's calculation. Without a frame, aggregate functions (SUM, AVG) use the entire partition — equivalent to a regular groupBy. With a frame, you control a moving window."
+      },
+      {
+        "type": "table",
+        "headers": ["Frame", "What it includes", "Use case"],
+        "rows": [
+          ["<code>rowsBetween(unboundedPreceding, 0)</code>", "Start of partition to current row", "Running total, cumulative sum/count"],
+          ["<code>rowsBetween(-2, 0)</code>", "2 rows before + current row", "3-period moving average"],
+          ["<code>rowsBetween(unboundedPreceding, unboundedFollowing)</code>", "Entire partition", "Percent of total: value / SUM(value) over full window"],
+          ["<code>rowsBetween(0, unboundedFollowing)</code>", "Current row to end", "Remaining total, suffix sum"]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "# Common window frame patterns:\nfrom pyspark.sql.window import Window\n\n# Running total\nrunning_w = (Window.partitionBy('emp_id').orderBy('month')\n                   .rowsBetween(Window.unboundedPreceding, 0))\ndf.withColumn('cumulative', F.sum('revenue').over(running_w))\n\n# 3-month moving average\nma3_w = (Window.partitionBy('emp_id').orderBy('month')\n               .rowsBetween(-2, 0))\ndf.withColumn('moving_avg', F.avg('revenue').over(ma3_w))\n\n# Percent of total per employee\nfull_w = (Window.partitionBy('emp_id')\n                .rowsBetween(Window.unboundedPreceding, Window.unboundedFollowing))\ndf.withColumn('pct_of_total',\n    F.col('revenue') / F.sum('revenue').over(full_w) * 100)"
+      },
+      {
+        "type": "callout",
+        "variant": "tip",
+        "content": "<strong>Interview pattern:</strong> Running total is the most common window function question. Know it cold: <code>SUM('col').over(Window.partitionBy('key').orderBy('date').rowsBetween(unboundedPreceding, 0))</code>."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "rowsBetween(start, end)",
+        "glyph": "📏",
+        "definition": "Defines window frame by row position offset from current row. 0 = current row, -1 = one row before, -2 = two rows before, Window.unboundedPreceding = start of partition, Window.unboundedFollowing = end of partition."
+      },
+      {
+        "term": "unboundedPreceding",
+        "glyph": "⏮️",
+        "definition": "Window.unboundedPreceding — the first row of the partition, no matter how many rows are before the current row. Use with rowsBetween(Window.unboundedPreceding, 0) for running totals."
+      },
+      {
+        "term": "Running Total",
+        "glyph": "📈",
+        "definition": "Cumulative sum from the start of a partition to the current row. Classic pattern: F.sum('amount').over(Window.partitionBy('id').orderBy('date').rowsBetween(Window.unboundedPreceding, 0)). Value grows (for positive inputs) with each row."
+      },
+      {
+        "term": "Moving Average",
+        "glyph": "〰️",
+        "definition": "Average over a sliding window of N rows. rowsBetween(-N+1, 0) for an N-period trailing average. 3-period MA: rowsBetween(-2, 0). Note: first rows in partition will average fewer rows (no padding by default)."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "What frame spec gives you the SUM of the current row plus the 2 rows immediately before it (a 3-row trailing sum)?",
+        "options": [
+          "rowsBetween(0, 2)",
+          "rowsBetween(-2, 0)",
+          "rowsBetween(unboundedPreceding, 3)",
+          "rowsBetween(-3, -1)"
+        ],
+        "correct": 1,
+        "feedback": "rowsBetween(-2, 0): offset -2 = 2 rows before current, 0 = current row. So the frame spans 3 rows total: current + 2 before. rowsBetween(0, 2) would be current + 2 AFTER (a lookahead window)."
+      },
+      {
+        "question": "Employee 8's revenues are: 20000 (Jan), 22000 (Feb), 19500 (Mar). What is their cumulative_revenue in March?",
+        "options": ["19500", "41500", "61500", "22000"],
+        "correct": 2,
+        "feedback": "Running total accumulates: Jan=20000, Feb=20000+22000=42000, Mar=42000+19500=61500. The frame rowsBetween(unboundedPreceding, 0) includes all rows from January up to and including March."
+      }
+    ]
+  },
+  "starter_code": "from pyspark.sql.window import Window\n\n# df is pre-loaded from sales.csv (columns: employee_id, region, month, revenue)\n\n# Running total window: partition by employee_id, order by month, frame: start to current\ncumulative_window = (\n    Window.partitionBy(___)\n          .orderBy(___)\n          .rowsBetween(Window.unboundedPreceding, 0)\n)\n\nresult = (\n    df.withColumn('cumulative_revenue', F.sum(___).over(cumulative_window))\n      .select('employee_id', 'region', 'month', 'revenue', 'cumulative_revenue')\n      .orderBy('employee_id', 'month')\n)",
+  "expected": [
+    {"employee_id": 1, "region": "North", "month": "2023-01", "revenue": 12000, "cumulative_revenue": 12000},
+    {"employee_id": 1, "region": "North", "month": "2023-02", "revenue": 13500, "cumulative_revenue": 25500},
+    {"employee_id": 1, "region": "North", "month": "2023-03", "revenue": 14000, "cumulative_revenue": 39500},
+    {"employee_id": 2, "region": "North", "month": "2023-01", "revenue": 18000, "cumulative_revenue": 18000},
+    {"employee_id": 2, "region": "North", "month": "2023-02", "revenue": 17000, "cumulative_revenue": 35000},
+    {"employee_id": 3, "region": "North", "month": "2023-01", "revenue": 18000, "cumulative_revenue": 18000},
+    {"employee_id": 3, "region": "North", "month": "2023-02", "revenue": 21000, "cumulative_revenue": 39000},
+    {"employee_id": 4, "region": "South", "month": "2023-01", "revenue": 9500, "cumulative_revenue": 9500},
+    {"employee_id": 4, "region": "South", "month": "2023-02", "revenue": 9000, "cumulative_revenue": 18500},
+    {"employee_id": 5, "region": "South", "month": "2023-01", "revenue": 14000, "cumulative_revenue": 14000},
+    {"employee_id": 5, "region": "South", "month": "2023-02", "revenue": 15500, "cumulative_revenue": 29500},
+    {"employee_id": 5, "region": "South", "month": "2023-03", "revenue": 16000, "cumulative_revenue": 45500},
+    {"employee_id": 6, "region": "East", "month": "2023-01", "revenue": 11000, "cumulative_revenue": 11000},
+    {"employee_id": 6, "region": "East", "month": "2023-02", "revenue": 12500, "cumulative_revenue": 23500},
+    {"employee_id": 6, "region": "East", "month": "2023-03", "revenue": 13000, "cumulative_revenue": 36500},
+    {"employee_id": 7, "region": "East", "month": "2023-01", "revenue": 16500, "cumulative_revenue": 16500},
+    {"employee_id": 7, "region": "East", "month": "2023-02", "revenue": 16500, "cumulative_revenue": 33000},
+    {"employee_id": 8, "region": "West", "month": "2023-01", "revenue": 20000, "cumulative_revenue": 20000},
+    {"employee_id": 8, "region": "West", "month": "2023-02", "revenue": 22000, "cumulative_revenue": 42000},
+    {"employee_id": 8, "region": "West", "month": "2023-03", "revenue": 19500, "cumulative_revenue": 61500}
+  ]
+}

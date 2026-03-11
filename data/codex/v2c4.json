@@ -1,0 +1,131 @@
+{
+  "id": "v2c4",
+  "volume": "vol2",
+  "volume_title": "Volume II — DataFrames & Spark SQL",
+  "title": "Aggregations at Scale",
+  "estimated_time": "15 min",
+  "sections": [
+    {
+      "title": "Two-Phase HashAggregate",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Every non-distinct aggregation in Spark is a two-phase operation. Understanding this is essential for reading query plans and diagnosing performance issues."
+        },
+        {
+          "type": "table",
+          "headers": ["Phase", "Where it runs", "What it does", "Plan node"],
+          "rows": [
+            ["Partial", "Each executor, pre-shuffle", "Locally aggregates rows within each partition — reduces shuffle data volume dramatically", "<code>HashAggregate (partial_count, partial_sum...)</code>"],
+            ["Final", "Each executor, post-shuffle", "Combines partial aggregates from all partitions that share the same group key", "<code>HashAggregate (count, sum...)</code>"],
+            ["Exchange", "Network", "Hash-partitions rows by group key so all rows for a given key end up on the same executor", "<code>Exchange hashpartitioning(key, N)</code>"]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "# Standard aggregation\ndf.groupBy('region').agg(F.count('*').alias('cnt'), F.sum('revenue').alias('total')) \\\n  .explain(mode='formatted')\n\n# Physical plan shows:\n# *(2) HashAggregate(key=[region], functions=[count(1), sum(revenue)])     ← FINAL\n# +- Exchange hashpartitioning(region, 200)\n#    +- *(1) HashAggregate(key=[region], functions=[partial_count(1), partial_sum(revenue)])  ← PARTIAL"
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "Partial aggregation is the reason <code>groupBy().count()</code> is fast even on 1 TB of data — Spark reduces 1 TB of rows to a small partial count table per partition before the shuffle."
+        }
+      ]
+    },
+    {
+      "title": "countDistinct vs approx_count_distinct",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<code>countDistinct()</code> requires an exact answer — Spark must shuffle all values to a single partition per group key to count uniques. At MAANG scale (billions of rows) this is a killer. <code>approx_count_distinct()</code> uses HyperLogLog++ and is typically within 5% accuracy."
+        },
+        {
+          "type": "code",
+          "content": "# ❌ Exact — forces a full shuffle of all values\ndf.groupBy('country').agg(F.countDistinct('user_id').alias('unique_users'))\n# Plan shows: ObjectHashAggregate with CollectSet or similar — expensive!\n\n# ✅ Approximate — HyperLogLog++ — 0.5% default error, 1000x faster\ndf.groupBy('country').agg(\n    F.approx_count_distinct('user_id', rsd=0.05).alias('approx_unique_users')\n)\n# rsd = relative standard deviation (0.05 = 5% error, lower rsd = more memory but more accurate)\n\n# Rule: use approx for monitoring/dashboards, exact only when contractually required"
+        }
+      ]
+    },
+    {
+      "title": "CUBE and ROLLUP for Multi-Dimensional Aggregation",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<code>ROLLUP</code> computes subtotals and grand totals along a hierarchy. <code>CUBE</code> computes aggregates for all combinations of group columns. Both are single-pass — far more efficient than running multiple groupBy queries."
+        },
+        {
+          "type": "code",
+          "content": "# ROLLUP: hierarchy (region → country → grand total)\ndf.rollup('region', 'country') \\\n  .agg(F.sum('revenue').alias('total')) \\\n  .fillna('ALL') \\\n  .orderBy('region', 'country')\n# Produces: (East, US), (East, ALL), (ALL, ALL)\n\n# CUBE: all combinations (region, country), (region, ALL), (ALL, country), (ALL, ALL)\ndf.cube('region', 'product_category') \\\n  .agg(F.sum('revenue').alias('total')) \\\n  .fillna('ALL') \\\n  .orderBy('region', 'product_category')\n# Use grouping_id() to distinguish real nulls from ROLLUP/CUBE nulls\ndf.cube('region', 'category') \\\n  .agg(F.sum('revenue'), F.grouping_id().alias('grp_id'))"
+        }
+      ]
+    },
+    {
+      "title": "sortAggregates and ObjectHashAggregate",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "When the aggregation buffer doesn't fit in fixed-size memory (e.g., collecting arrays, sets), Spark falls back to <code>ObjectHashAggregate</code> or <code>SortAggregate</code>. Both are significantly slower than <code>HashAggregate</code>."
+        },
+        {
+          "type": "table",
+          "headers": ["Operator", "When used", "Performance"],
+          "rows": [
+            ["<code>HashAggregate</code>", "Fixed-size accumulators: count, sum, avg, min, max", "Fastest — in-place update, Tungsten off-heap"],
+            ["<code>ObjectHashAggregate</code>", "Variable-size: collect_list, collect_set, countDistinct", "Slower — Java heap objects, GC pressure"],
+            ["<code>SortAggregate</code>", "When ObjectHashAggregate can't be used (some UDAFs)", "Slowest — sort + disk spill possible"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "warning",
+          "content": "Seeing <code>ObjectHashAggregate</code> in your plan? Check if you're using <code>collect_list</code> or <code>countDistinct</code>. Consider whether <code>approx_count_distinct</code> or a different aggregation approach can replace it."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Partial Aggregate",
+      "glyph": "½",
+      "definition": "First phase of groupBy: each partition aggregates its own rows locally before the shuffle. Dramatically reduces data volume moved across the network. Visible as 'partial_sum', 'partial_count' in query plans."
+    },
+    {
+      "term": "approx_count_distinct",
+      "glyph": "≈",
+      "definition": "HyperLogLog++ implementation in Spark. Returns approximate unique count with configurable error (rsd param). Typically 100-1000x faster than exact countDistinct on large datasets. Default rsd=0.05 (5% error)."
+    },
+    {
+      "term": "ROLLUP",
+      "glyph": "📊",
+      "definition": "Hierarchical aggregation that produces subtotals + grand total in one pass. rollup('a','b') produces groups: (a,b), (a,null), (null,null). More efficient than multiple groupBy calls."
+    },
+    {
+      "term": "ObjectHashAggregate",
+      "glyph": "⚠️",
+      "definition": "Fallback aggregator for variable-size accumulators (collect_list, collect_set, countDistinct). Stores objects on JVM heap instead of Tungsten off-heap memory. Watch for GC pressure and OOMs."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "Your query does groupBy('city').agg(countDistinct('user_id')). The plan shows ObjectHashAggregate. What's the fastest production fix for a dashboard that tolerates 3% error?",
+      "options": [
+        "Add .repartition('city') before the groupBy",
+        "Replace countDistinct with approx_count_distinct('user_id', rsd=0.03)",
+        "Increase spark.sql.shuffle.partitions",
+        "Cast user_id to string before aggregating"
+      ],
+      "correct": 1,
+      "feedback": "approx_count_distinct uses HyperLogLog++ and runs as a HashAggregate (fixed-size accumulator), eliminating the ObjectHashAggregate and dramatically reducing shuffle data. rsd=0.03 gives 3% error."
+    },
+    {
+      "question": "What does ROLLUP('region', 'country') produce compared to a plain groupBy('region', 'country')?",
+      "options": [
+        "Identical results — ROLLUP is just an alias",
+        "Sub-totals per region (country=null) plus a grand total (region=null, country=null)",
+        "All combinations of region and country including cross products",
+        "Only the grand total row"
+      ],
+      "correct": 1,
+      "feedback": "ROLLUP goes one level up the hierarchy at each step: (region, country) for exact groups, (region, null) for region subtotals, and (null, null) for the grand total. CUBE would produce all combinations."
+    }
+  ]
+}

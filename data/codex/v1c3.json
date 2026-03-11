@@ -1,0 +1,142 @@
+{
+  "id": "v1c3",
+  "volume": "vol1",
+  "volume_title": "Volume I — The Foundations of Spark",
+  "title": "Lazy Evaluation & the DAG",
+  "estimated_time": "14 min",
+  "sections": [
+    {
+      "title": "Lazy vs Eager Evaluation",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<strong>Lazy evaluation</strong> is the most important concept in Spark. When you call <code>df.filter()</code>, <code>df.select()</code>, or <code>df.join()</code>, Spark does <strong>nothing</strong>. It just records your intent as a node in a logical plan tree. Computation only starts when you call an <em>action</em>."
+        },
+        {
+          "type": "table",
+          "headers": ["Type", "Examples", "Behavior"],
+          "rows": [
+            ["Transformation (lazy)", "<code>select, filter, withColumn, groupBy, join, orderBy, repartition, union</code>", "Returns a new DataFrame with added plan node. Zero computation."],
+            ["Action (eager)", "<code>count(), show(), collect(), write, take(N), first()</code>", "Triggers the DAG scheduler. Executes all pending transformations."]
+          ]
+        },
+        {
+          "type": "callout",
+          "style": "info",
+          "icon": "ℹ️",
+          "content": "<strong>Why lazy evaluation?</strong> It lets Catalyst see your entire query before executing any of it. Catalyst can then apply global optimizations: push filters down, prune columns early, reorder joins by size. If Spark executed eagerly like Pandas, none of this would be possible."
+        }
+      ]
+    },
+    {
+      "title": "The DAG — Directed Acyclic Graph",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "As you chain transformations, Spark builds a <strong>DAG (Directed Acyclic Graph)</strong> — a tree of logical operations with your source data at the leaves and the final result at the root. When an action is called, the DAG Scheduler converts this into <em>stages</em> separated at shuffle boundaries."
+        },
+        {
+          "type": "code",
+          "content": "# Each method call adds a node to the logical DAG:\n# Source: read Parquet\ndf = spark.read.parquet('s3://bucket/events/')\n# Node 1: filter (predicate)\ndf_filtered = df.filter(col('event_type') == 'purchase')\n# Node 2: join\ndf_joined = df_filtered.join(broadcast(df_users), 'user_id')\n# Node 3: groupBy+agg\ndf_agg = df_joined.groupBy('country').agg(sum('amount').alias('total'))\n# Node 4: sort\ndf_sorted = df_agg.orderBy(col('total').desc())\n\n# Nothing has happened yet! DAG is just a plan.\n# This triggers execution:\ndf_sorted.show(20)  # <-- Action"
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "Run <code>df.explain(mode='formatted')</code> BEFORE calling an action to inspect the physical plan Catalyst built. Look for: <code>FileScan</code> (data source), <code>Filter</code> (predicate pushdown), <code>BroadcastHashJoin</code> vs <code>SortMergeJoin</code>, <code>HashAggregate</code>."
+        }
+      ]
+    },
+    {
+      "title": "Stages & Shuffle Boundaries",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The DAG Scheduler cuts the DAG into <strong>stages</strong> at <em>shuffle boundaries</em>. A shuffle is any operation that requires redistributing data across partitions — <code>groupBy</code>, <code>join</code> (sort-merge), <code>repartition</code>, <code>distinct</code>, <code>orderBy</code>."
+        },
+        {
+          "type": "table",
+          "headers": ["Operation", "Shuffle?", "Why"],
+          "rows": [
+            ["<code>filter()</code>", "No", "Each partition filtered independently"],
+            ["<code>select()</code>", "No", "Column selection is local"],
+            ["<code>withColumn()</code>", "No", "Row-by-row transformation"],
+            ["<code>groupBy().agg()</code>", "Yes", "Rows with same key must reach same executor"],
+            ["<code>join()</code> (sort-merge)", "Yes", "Both tables shuffled by join key"],
+            ["<code>join()</code> (broadcast)", "No", "Small table copied to every executor"],
+            ["<code>orderBy()</code>", "Yes", "Range partition shuffle for global sort"],
+            ["<code>repartition(N)</code>", "Yes", "Hash/round-robin redistribute to N partitions"],
+            ["<code>coalesce(N)</code>", "No*", "Merges partitions locally (*no full shuffle)"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Lineage & Fault Tolerance",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The DAG is also Spark's <strong>fault tolerance mechanism</strong>. If an executor dies mid-job, Spark doesn't restart the whole job. It looks up the lineage of the lost partition and recomputes just those partitions from the last shuffle boundary (or from the source if no shuffle yet)."
+        },
+        {
+          "type": "callout",
+          "style": "warning",
+          "icon": "⚠️",
+          "content": "<strong>Deep lineage chains slow down recomputation.</strong> If your DAG has 100+ transformations before a shuffle, a single partition failure forces recomputing all 100 steps. Use <code>df.checkpoint()</code> to truncate lineage at key points — it materializes to persistent storage and resets the DAG root."
+        },
+        {
+          "type": "code",
+          "content": "# Set checkpoint directory (HDFS or S3)\nspark.sparkContext.setCheckpointDir('s3://bucket/spark-checkpoints/')\n\n# After a complex, expensive computation:\ndf_expensive.cache()       # Keep in memory for reuse\ndf_expensive.checkpoint()  # Also truncate lineage (saves to S3)\ndf_expensive.count()       # Materialize both cache + checkpoint"
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Lazy Evaluation",
+      "definition": "Spark transformations don't execute immediately — they build a DAG. Execution starts only when an action is called. Enables Catalyst to see the full query and optimize globally."
+    },
+    {
+      "term": "DAG",
+      "definition": "Directed Acyclic Graph. Spark's internal representation of your query as a tree of operations. Catalyst converts it from logical → optimized logical → physical plan."
+    },
+    {
+      "term": "Shuffle Boundary",
+      "definition": "Any operation requiring data redistribution between partitions (groupBy, sort-merge join, orderBy, repartition). Creates a stage boundary in the DAG."
+    },
+    {
+      "term": "Stage",
+      "definition": "A set of tasks that can run without a shuffle. Each stage = N tasks = N partitions. The DAG Scheduler determines stage boundaries."
+    },
+    {
+      "term": "Checkpoint",
+      "definition": "<code>df.checkpoint()</code> materializes to HDFS/S3 AND truncates lineage. Unlike cache(), survives executor failures. Use when lineage is 50+ transformations deep."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "You write <code>df2 = df.filter(col('x') > 10).select('a','b','c')</code>. When does Spark read from disk?",
+      "options": [
+        "Immediately when filter() is called",
+        "When select() is called, because it's the last transformation",
+        "Not yet — no action has been called. Data won't be read until an action like count(), show(), or write()",
+        "Spark pre-reads a sample immediately but defers full scan"
+      ],
+      "answer": 2,
+      "explanation": "Both filter() and select() are transformations — they add nodes to the logical plan but trigger no I/O. Spark reads data only when you call an action. This is lazy evaluation."
+    },
+    {
+      "type": "mcq",
+      "question": "A job has these operations: read → filter → join (sort-merge) → groupBy → orderBy → write. How many shuffle stages does it have?",
+      "options": [
+        "1 shuffle (only join)",
+        "2 shuffles (join + groupBy)",
+        "3 shuffles (join + groupBy + orderBy)",
+        "0 shuffles — Catalyst optimizes them away"
+      ],
+      "answer": 2,
+      "explanation": "Sort-merge join = 1 shuffle (both tables redistributed by join key). groupBy = 1 shuffle (rows with same key co-located). orderBy = 1 shuffle (range partition for global sort). That's 3 shuffle stages. read and filter have no shuffle. Catalyst may optimize join order, but can't eliminate necessary shuffles."
+    }
+  ]
+}

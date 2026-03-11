@@ -4,29 +4,124 @@
 {% block content %}
 <div class="mission-wrapper">
 
-  <!-- TOP: Concept teach panel (W3Schools style) -->
+  <!-- TOP: Concept teach panel — two tabs: Theory | Example -->
   {% if mission.concept %}
   <div class="concept-panel">
     <div class="concept-header">
-      <span class="concept-tag">📖 Learn the concept first</span>
+      <div class="concept-tabs">
+        {% if mission.concept.theory %}
+        <button class="concept-tab active" data-tab="theory" onclick="switchTab(this,'theory')">📖 Theory</button>
+        {% endif %}
+        <button class="concept-tab {% if not mission.concept.theory %}active{% endif %}" data-tab="example" onclick="switchTab(this,'example')">💻 Example</button>
+      </div>
       <span class="concept-topic">{{ mission.topic }}</span>
     </div>
-    <div class="concept-body">
-      <p class="concept-explanation">{{ mission.concept.explanation }}</p>
 
-      <div class="concept-example-block">
-        <div class="example-bar">
-          <span class="example-label">Example</span>
-          <button class="btn btn-sm btn-try" onclick="loadExample()">⚡ Try it in the editor</button>
+    <!-- Theory tab -->
+    {% if mission.concept.theory %}
+    <div class="concept-tab-pane active" id="tab-theory">
+      <div class="concept-body theory-body">
+        {% for block in mission.concept.theory %}
+          {% if block.type == "text" %}
+            <p class="theory-text">{{ block.content | safe }}</p>
+          {% elif block.type == "heading" %}
+            <h4 class="theory-heading">{{ block.content }}</h4>
+          {% elif block.type == "table" %}
+            <div class="table-scroll theory-table-wrap">
+              <table class="theory-table">
+                <thead><tr>{% for h in block.headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+                <tbody>{% for row in block.rows %}<tr>{% for cell in row %}<td>{{ cell | safe }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+              </table>
+            </div>
+          {% elif block.type == "code" %}
+            <pre class="theory-code">{{ block.content }}</pre>
+          {% elif block.type == "callout" %}
+            <div class="theory-callout theory-callout-{{ block.style | default('info') }}">
+              <span class="callout-icon">{{ block.icon | default('💡') }}</span>
+              <span>{{ block.content | safe }}</span>
+            </div>
+          {% endif %}
+        {% endfor %}
+
+        <!-- Rune flashcards for this concept -->
+        {% if mission.concept.rune_cards %}
+        <div class="rune-cards-section">
+          <h4 class="theory-heading">🃏 Rune Cards — Key Terms</h4>
+          <div class="rune-cards-grid">
+            {% for card in mission.concept.rune_cards %}
+            <div class="rune-card" onclick="this.classList.toggle('flipped')">
+              <div class="rune-card-inner">
+                <div class="rune-card-front">
+                  <span class="rune-glyph">᚛</span>
+                  <span class="rune-term">{{ card.term }}</span>
+                  <span class="rune-flip-hint">tap to reveal</span>
+                </div>
+                <div class="rune-card-back">
+                  <p class="rune-def">{{ card.definition | safe }}</p>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
         </div>
-        <pre class="example-code"><code>{{ mission.concept.example_code }}</code></pre>
-      </div>
+        {% endif %}
 
-      {% if mission.concept.output_note %}
-      <div class="concept-output-note">
-        <span class="output-note-label">Output note:</span> {{ mission.concept.output_note }}
+        <!-- Quiz -->
+        {% if mission.concept.quiz %}
+        <div class="oracle-quiz">
+          <h4 class="theory-heading">🔮 Oracle Quiz — Test Your Knowledge</h4>
+          {% for q in mission.concept.quiz %}
+          <div class="quiz-question" id="qq-{{ loop.index }}">
+            <p class="quiz-q-text"><span class="quiz-num">Q{{ loop.index }}.</span> {{ q.question | safe }}</p>
+            {% if q.type == "mcq" %}
+            <div class="quiz-options">
+              {% for opt in q.options %}
+              <button class="quiz-opt" onclick="answerMCQ(this, {{ loop.index0 }}, {{ q.answer }}, 'qq-{{ loop.index }}')" data-idx="{{ loop.index0 }}">
+                <span class="quiz-opt-letter">{{ ['A','B','C','D'][loop.index0] }}</span> {{ opt | safe }}
+              </button>
+              {% endfor %}
+            </div>
+            {% elif q.type == "spot_the_bug" %}
+            <pre class="quiz-code-block">{{ q.code }}</pre>
+            <div class="quiz-options">
+              {% for opt in q.options %}
+              <button class="quiz-opt" onclick="answerMCQ(this, {{ loop.index0 }}, {{ q.answer }}, 'qq-{{ loop.index }}')" data-idx="{{ loop.index0 }}">
+                <span class="quiz-opt-letter">{{ ['A','B','C','D'][loop.index0] }}</span> {{ opt | safe }}
+              </button>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <div class="quiz-feedback" id="qf-{{ loop.index }}" style="display:none">
+              <span class="qf-icon"></span>
+              <span class="qf-text">{{ q.explanation | safe }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Example tab -->
+    <div class="concept-tab-pane {% if not mission.concept.theory %}active{% endif %}" id="tab-example">
+      <div class="concept-body">
+        <p class="concept-explanation">{{ mission.concept.explanation | safe }}</p>
+
+        <div class="concept-example-block">
+          <div class="example-bar">
+            <span class="example-label">Example</span>
+            <button class="btn btn-sm btn-try" onclick="loadExample()">⚡ Try it in the editor</button>
+          </div>
+          <pre class="example-code"><code>{{ mission.concept.example_code }}</code></pre>
+        </div>
+
+        {% if mission.concept.output_note %}
+        <div class="concept-output-note">
+          <span class="output-note-label">Output note:</span> {{ mission.concept.output_note }}
+        </div>
+        {% endif %}
+      </div>
     </div>
   </div>
   {% endif %}
@@ -144,6 +239,32 @@
     editor.focus();
     document.getElementById('result-area').style.display = 'none';
     document.getElementById('error-area').style.display = 'none';
+  }
+
+  function switchTab(btn, tabId) {
+    document.querySelectorAll('.concept-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.concept-tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const pane = document.getElementById('tab-' + tabId);
+    if (pane) pane.classList.add('active');
+  }
+
+  function answerMCQ(btn, idx, correctIdx, questionId) {
+    const qBlock = document.getElementById(questionId);
+    if (qBlock.dataset.answered) return;
+    qBlock.dataset.answered = '1';
+    const opts = qBlock.querySelectorAll('.quiz-opt');
+    opts.forEach((o, i) => {
+      o.disabled = true;
+      if (i === correctIdx) o.classList.add('correct');
+      else if (i === idx && idx !== correctIdx) o.classList.add('wrong');
+    });
+    const fb = document.getElementById(questionId.replace('qq-', 'qf-'));
+    if (fb) {
+      fb.style.display = 'flex';
+      fb.querySelector('.qf-icon').textContent = idx === correctIdx ? '✅' : '❌';
+      fb.classList.add(idx === correctIdx ? 'correct' : 'wrong');
+    }
   }
 
   // If already solved, show next button immediately

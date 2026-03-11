@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}The Codex — Spark Dungeon{% endblock %}
+
+{% block content %}
+<div class="codex-page">
+  <div class="codex-header">
+    <h1 class="codex-title">📚 The Codex</h1>
+    <p class="codex-subtitle">MAANG-level deep dives into Spark internals, query optimization, streaming, and performance engineering. Master every layer — from the DAG Scheduler to Delta Lake.</p>
+  </div>
+
+  <div class="codex-volumes">
+    {% for volume in volumes %}
+    <div>
+      <h2 class="codex-volume-title">{{ volume.icon }} {{ volume.title }}</h2>
+      <p style="font-size:.8rem;color:var(--text-muted);margin:.2rem 0 .5rem">{{ volume.subtitle }}</p>
+      <div class="codex-chapters">
+        {% for ch in volume.chapters %}
+        <a href="/codex/{{ ch.id }}" class="codex-chapter-card">
+          <span class="codex-ch-num">{{ volume.id }} · Ch {{ loop.index }}</span>
+          <span class="codex-ch-title">{{ ch.title }}</span>
+          <span class="codex-ch-desc">{{ ch.description }}</span>
+          <span class="codex-ch-time">⏱ {{ ch.estimated_time }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,132 @@
+{
+  "id": "v1c4",
+  "volume": "vol1",
+  "volume_title": "Volume I — The Foundations of Spark",
+  "title": "Partitions & Parallelism",
+  "estimated_time": "13 min",
+  "sections": [
+    {
+      "title": "What is a Partition?",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A <strong>partition</strong> is a chunk of data that lives on one executor and is processed by one task. Spark parallelism = number of partitions being processed concurrently. Too few partitions → cores sit idle. Too many partitions → task scheduling overhead dominates."
+        },
+        {
+          "type": "callout",
+          "style": "info",
+          "icon": "ℹ️",
+          "content": "<strong>Rule of thumb:</strong> 2–4 partitions per CPU core. For a 100-core cluster, aim for 200–400 partitions after shuffles. Default shuffle partitions = 200 (<code>spark.sql.shuffle.partitions</code>) — often needs tuning."
+        }
+      ]
+    },
+    {
+      "title": "Input Partitions",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "When reading files, Spark creates one partition per input split. For Parquet/ORC, each row group becomes a partition. Default split size ≈ HDFS block size (128 MB). You can control this with <code>spark.sql.files.maxPartitionBytes</code>."
+        },
+        {
+          "type": "code",
+          "content": "df = spark.read.parquet('s3://bucket/events/')\nprint(df.rdd.getNumPartitions())  # e.g., 1024 files * ~1 row-group = 1024 partitions\n\n# Check partition sizes (expensive on large data — avoid in production)\ndf.rdd.mapPartitions(lambda it: [sum(1 for _ in it)]).collect()"
+        }
+      ]
+    },
+    {
+      "title": "repartition() vs coalesce()",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "These are the two ways to change partition count. They have very different cost profiles."
+        },
+        {
+          "type": "table",
+          "headers": ["Method", "Shuffle?", "Use case", "When to use"],
+          "rows": [
+            ["<code>repartition(N)</code>", "Yes — full shuffle", "Increase OR decrease partitions with even distribution", "Before a wide transformation; before writing evenly-sized Parquet files"],
+            ["<code>repartition(N, 'col')</code>", "Yes — hash partition", "Co-locate rows with same key (like bucketing)", "Before joins on the same column to avoid re-shuffle"],
+            ["<code>coalesce(N)</code>", "No* — local merge", "Reduce partition count only", "Final output step — avoid small files without full shuffle cost"]
+          ]
+        },
+        {
+          "type": "callout",
+          "style": "warning",
+          "icon": "⚠️",
+          "content": "<code>coalesce(1)</code> is a common mistake. It merges all data to a single partition on one executor — killing parallelism. Only use it for writing small reference tables to a single file. For large data, use <code>repartition(N)</code> with a reasonable N."
+        },
+        {
+          "type": "code",
+          "content": "# Increase partitions before a heavy join\ndf_large = df.repartition(400)\n\n# Hash partition by key — avoids re-shuffle on subsequent join with same key\ndf_by_user = df.repartition(200, 'user_id')\n\n# Reduce to target file count for writing (no shuffle cost)\n# Good: from 1000 partitions to 100 Parquet files\ndf_output = df.coalesce(100)\ndf_output.write.parquet('s3://bucket/output/')"
+        }
+      ]
+    },
+    {
+      "title": "shuffle.partitions & AQE",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "After a shuffle (groupBy, join), Spark creates <code>spark.sql.shuffle.partitions</code> partitions (default: 200). For small datasets, 200 tiny partitions cause overhead. For large datasets, 200 may be too few (large partition skew, OOM). With Spark 3.0+ <strong>Adaptive Query Execution (AQE)</strong> enabled, Spark dynamically coalesces small post-shuffle partitions."
+        },
+        {
+          "type": "code",
+          "content": "# Tune for your workload\nspark.conf.set('spark.sql.shuffle.partitions', '400')  # for large jobs\nspark.conf.set('spark.sql.shuffle.partitions', '20')   # for small jobs\n\n# AQE (Spark 3.0+) — handles it automatically\nspark.conf.set('spark.sql.adaptive.enabled', 'true')   # default true in Spark 3.2+\nspark.conf.set('spark.sql.adaptive.coalescePartitions.enabled', 'true')\n\n# AQE also handles skew joins:\nspark.conf.set('spark.sql.adaptive.skewJoin.enabled', 'true')"
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "With <strong>AQE enabled</strong> (Spark 3.2+ default), you rarely need to manually tune <code>shuffle.partitions</code>. AQE dynamically coalesces small partitions after shuffles and splits large skewed partitions. Enable it and let Spark adapt."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Partition",
+      "definition": "A chunk of data processed by one task on one executor. Parallelism = concurrent partitions. Target: 2–4× more partitions than cores."
+    },
+    {
+      "term": "repartition(N)",
+      "definition": "Full shuffle to redistribute data into exactly N partitions. Even distribution. Expensive but necessary before wide joins or for balancing skewed data."
+    },
+    {
+      "term": "coalesce(N)",
+      "definition": "Merge partitions locally without a full shuffle. Can only reduce, not increase. Use before final write to reduce file count. Avoid coalesce(1) on large data."
+    },
+    {
+      "term": "spark.sql.shuffle.partitions",
+      "definition": "Number of partitions created after a shuffle (default: 200). Set based on data size and cluster. AQE can dynamically coalesce post-shuffle partitions in Spark 3.0+."
+    },
+    {
+      "term": "AQE",
+      "definition": "Adaptive Query Execution (Spark 3.0+). Re-optimizes at runtime using actual shuffle statistics: dynamic partition coalescing, skew join splitting, join strategy switching."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "A job reads a 1 TB Parquet dataset (8000 partitions) and does a groupBy. After the shuffle with default settings, how many partitions does the result have?",
+      "options": [
+        "8000 — same as input",
+        "200 — spark.sql.shuffle.partitions default",
+        "1 — Spark always reduces to minimum after groupBy",
+        "Depends on the number of distinct group keys"
+      ],
+      "answer": 1,
+      "explanation": "After any shuffle (groupBy, join, orderBy), Spark creates <code>spark.sql.shuffle.partitions</code> (default 200) output partitions, regardless of input partition count. For a 1 TB dataset, this means 200 output partitions averaging 5 GB each — probably too large. Tune to 2000+ for this workload."
+    },
+    {
+      "type": "mcq",
+      "question": "You need to write a DataFrame to 50 Parquet files (from the current 500 partitions). What's the most efficient approach?",
+      "options": [
+        "<code>df.repartition(50).write.parquet(path)</code>",
+        "<code>df.coalesce(50).write.parquet(path)</code>",
+        "<code>df.write.option('maxFilesPerTrigger', 50).parquet(path)</code>",
+        "<code>df.sort('id').write.parquet(path)</code>"
+      ],
+      "answer": 1,
+      "explanation": "<code>coalesce(50)</code> merges partitions locally (no full shuffle) — much cheaper than <code>repartition(50)</code> which would shuffle all data. Use coalesce when reducing partition count at the output stage. repartition shuffles data evenly but is unnecessarily expensive for a write-only step."
+    }
+  ]
+}

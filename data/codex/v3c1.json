@@ -1,0 +1,130 @@
+{
+  "id": "v3c1",
+  "volume": "vol3",
+  "volume_title": "Volume III — Storage & Formats",
+  "title": "Parquet Deep Dive",
+  "estimated_time": "16 min",
+  "sections": [
+    {
+      "title": "Why Parquet Beats CSV and JSON",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Most production Spark jobs run on Parquet. Understanding <em>why</em> Parquet is fast lets you explain it in interviews and make the right storage decisions at your company."
+        },
+        {
+          "type": "table",
+          "headers": ["Property", "CSV/JSON", "Parquet"],
+          "rows": [
+            ["Layout", "Row-oriented — all columns of row N before row N+1", "Columnar — all values of column A, then all of column B"],
+            ["Query <code>SELECT a, b FROM t</code>", "Must read all columns for every row", "Only reads column A and B pages — skip all others"],
+            ["Type information", "None — everything is a string", "Schema embedded in footer — no inference overhead"],
+            ["Compression", "~1:1 (can gzip but must decompress all)", "Column-level compression; similar values compress 10-100x"],
+            ["Predicate pushdown", "None — must scan all rows", "Min/max stats per row group — skip entire row groups"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "tip",
+          "content": "Selecting 3 columns from a 100-column Parquet table reads only 3% of the data. The same query on CSV reads 100%."
+        }
+      ]
+    },
+    {
+      "title": "Parquet File Anatomy",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A Parquet file has three layers: Row Groups → Column Chunks → Pages. Statistics live at the Row Group and Column Chunk level, enabling Spark to skip entire chunks of data without reading them."
+        },
+        {
+          "type": "code",
+          "content": "# Parquet file layout (conceptually):\n#\n# ┌─────────────────────────────────────┐\n# │  Row Group 0  (default 128 MB)      │\n# │  ┌─────────────┐ ┌─────────────┐   │\n# │  │ Col A chunk │ │ Col B chunk │   │  ← column chunk\n# │  │ ┌─────────┐ │ │ ┌─────────┐ │  │\n# │  │ │  page0  │ │ │ │  page0  │ │  │  ← page (8 KB default)\n# │  │ │  page1  │ │ │ │  page1  │ │  │\n# │  │ └─────────┘ │ │ └─────────┘ │  │\n# │  │ stats:      │ │ stats:      │  │\n# │  │  min=1      │ │  min='A'    │  │  ← per-column statistics\n# │  │  max=999    │ │  max='Z'    │  │\n# │  └─────────────┘ └─────────────┘  │\n# ├─────────────────────────────────────┤\n# │  Row Group 1                        │\n# │  ...                                │\n# ├─────────────────────────────────────┤\n# │  File Footer (schema + row group    │  ← Spark reads footer first\n# │  offsets + column statistics)       │\n# └─────────────────────────────────────┘"
+        }
+      ]
+    },
+    {
+      "title": "Min/Max Statistics & Predicate Pushdown",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Each row group stores per-column min and max values in its statistics. When you filter on a column, Spark checks these stats before reading any data. Row groups where <code>filter_value < min OR filter_value > max</code> are skipped entirely."
+        },
+        {
+          "type": "code",
+          "content": "# This filter can skip entire row groups via stats:\ndf = spark.read.parquet('s3://my-bucket/orders/')\nfiltered = df.filter(F.col('order_date') > '2024-01-01')\n\n# Spark reads the footer, finds row groups where:\n#   max(order_date) <= '2024-01-01' → SKIP\n#   min(order_date) >= '2024-01-02' → READ\n\n# To maximize skipping: write data physically sorted by common filter columns\ndf.sort('order_date').write.parquet('s3://my-bucket/orders_sorted/')\n# Now each row group covers a narrow date range → better skipping\n\n# Check how many row groups were skipped\ndf.filter(F.col('order_date') > '2024-01-01') \\\n  .explain(mode='formatted')\n# Look for PartitionFilters and PushedFilters in the FileScan node"
+        }
+      ]
+    },
+    {
+      "title": "Encoding & Compression",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Parquet applies encoding first, then compression. Encoding is lossless and often more powerful than generic compression because it exploits column type patterns."
+        },
+        {
+          "type": "table",
+          "headers": ["Encoding", "Best for", "How it works"],
+          "rows": [
+            ["Dictionary encoding", "Low-cardinality columns (country, status, category)", "Replaces repeated values with integer IDs — e.g., 'US' → 0"],
+            ["RLE (Run-Length Encoding)", "Sorted columns with long runs", "Stores (value, count) pairs instead of repeating the value"],
+            ["Delta encoding", "Monotonically increasing integers (IDs, timestamps)", "Stores differences between consecutive values"],
+            ["Bit packing", "Small-range integers", "Uses minimum bits needed to represent value range"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "info",
+          "content": "<strong>Compression codecs:</strong> Use <strong>Snappy</strong> (default) for fast reads/writes with decent compression. Use <strong>Zstd</strong> for cold storage (better ratio, slightly slower decode). Avoid Gzip for Spark — it's non-splittable as a Parquet codec and slow to decompress."
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "Row Group",
+      "glyph": "📦",
+      "definition": "Horizontal partition of rows within a Parquet file. Default 128 MB (matches HDFS block). Contains one column chunk per column. Stores per-column min/max statistics enabling predicate pushdown. Spark aims to read one row group per task."
+    },
+    {
+      "term": "Column Chunk",
+      "glyph": "📋",
+      "definition": "All values of one column within a row group. Stored contiguously on disk — enables column pruning (only read columns you SELECT). Contains pages + stats (min, max, null count)."
+    },
+    {
+      "term": "Predicate Pushdown",
+      "glyph": "🔽",
+      "definition": "Reading only row groups where min/max statistics are compatible with your filter, before any data is deserialized. Visible in query plans as PushedFilters. Sort your data by the filter column to maximize skipping."
+    },
+    {
+      "term": "Dictionary Encoding",
+      "glyph": "📖",
+      "definition": "Parquet replaces repeated column values with small integer IDs and stores a dictionary page once. A column with 5 distinct countries stored in 1M rows stores the country name only 5 times, not 1M times."
+    }
+  ],
+  "quiz": [
+    {
+      "question": "Your query filters on column `event_type` (20 distinct values, low cardinality). The Parquet file was written with sort order on `user_id` not `event_type`. What's the most likely outcome?",
+      "options": [
+        "All row groups are skipped because of min/max stats",
+        "Min/max stats don't help because event_type values are spread across all row groups — full scan",
+        "Dictionary encoding makes this fast regardless",
+        "Spark will sort the file automatically before reading"
+      ],
+      "correct": 1,
+      "feedback": "Because event_type is not the sort key, each row group likely contains all 20 event types. min(event_type) and max(event_type) span the entire range, so no row groups can be skipped. Sorting by event_type would allow ~95% of row groups to be skipped for a typical filter."
+    },
+    {
+      "question": "Why is Parquet's column pruning faster than CSV even when reading just 1 column out of 200?",
+      "options": [
+        "Parquet uses better compression",
+        "Parquet columns are stored contiguously — Spark seeks directly to column A's bytes, skipping 199 columns entirely",
+        "CSV is slower to parse",
+        "Parquet uses more threads"
+      ],
+      "correct": 1,
+      "feedback": "Columnar layout means all values of column A are adjacent on disk. Spark reads the file footer to find column A's byte offset, then seeks directly to it. In CSV every row is interleaved so you must touch every byte to find column A's values."
+    }
+  ]
+}

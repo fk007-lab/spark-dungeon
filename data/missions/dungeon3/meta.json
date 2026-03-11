@@ -3,5 +3,32 @@
   "title": "Tower of Ranks",
   "description": "Window functions: ROW_NUMBER, RANK, DENSE_RANK, cumulative SUM, LAG, LEAD — and ranking within partitions.",
   "icon": "🏆",
-  "unlock_requires": ["dungeon2"]
+  "unlock_requires": ["dungeon2"],
+  "theory_scroll": [
+    {
+      "type": "text",
+      "content": "Window functions compute a result <strong>per row</strong> based on a set of related rows — without collapsing the DataFrame like groupBy does. They are the most powerful tool in a Data Engineer's SQL arsenal."
+    },
+    {
+      "type": "table",
+      "headers": ["Function", "Category", "Key behaviour"],
+      "rows": [
+        ["<code>row_number()</code>", "Ranking", "Unique sequential int — no ties ever"],
+        ["<code>rank()</code>", "Ranking", "Same rank for ties; SKIPS next rank(s)"],
+        ["<code>dense_rank()</code>", "Ranking", "Same rank for ties; NEVER skips"],
+        ["<code>ntile(k)</code>", "Ranking", "Divide partition into k equal buckets"],
+        ["<code>percent_rank()</code>", "Ranking", "(rank-1)/(total-1) → 0.0 to 1.0"],
+        ["<code>lag(col, n)</code>", "Offset", "Value n rows BEFORE current row"],
+        ["<code>lead(col, n)</code>", "Offset", "Value n rows AFTER current row"],
+        ["<code>sum().over(frame)</code>", "Aggregate", "Running total or moving sum"],
+        ["<code>avg().over(frame)</code>", "Aggregate", "Moving average over frame window"],
+        ["<code>first() / last()</code>", "Aggregate", "First/last value in partition or frame"]
+      ]
+    },
+    {
+      "type": "callout",
+      "variant": "tip",
+      "content": "<strong>WindowSpec anatomy:</strong> <code>Window.partitionBy('col').orderBy('col').rowsBetween(start, end)</code>. partitionBy is like GROUP BY but keeps all rows. orderBy is required for ranking and offset functions. rowsBetween defines the frame for aggregates."
+    }
+  ]
 }

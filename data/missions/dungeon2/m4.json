@@ -10,12 +10,120 @@
   "concept": {
     "explanation": "You can add columns together with the <code>+</code> operator directly on DataFrame columns. Use <code>withColumn('new_col', col_a + col_b + col_c)</code> to create a derived column from arithmetic across multiple columns. You can reference columns via <code>df.col_name</code> or <code>F.col('col_name')</code>.",
     "example_code": "# Example: add up weekly scores into a total\nscores_df = spark.createDataFrame(\n    [(1, 'Alice', 10, 15, 12)],\n    ['id', 'name', 'week1', 'week2', 'week3']\n)\n\nresult = scores_df.withColumn(\n    'total_score',\n    scores_df.week1 + scores_df.week2 + scores_df.week3\n)\n# Adds column: total_score = 37",
-    "output_note": "The + operator on DataFrame columns creates a new column expression. Wrap it in withColumn() to materialise it."
+    "output_note": "The + operator on DataFrame columns creates a new column expression. Wrap it in withColumn() to materialise it.",
+    "theory": [
+      {
+        "type": "text",
+        "content": "<strong>UDFs (User-Defined Functions)</strong> let you apply custom Python logic to DataFrame columns. But they come with a <strong>massive performance tax</strong>: each row is serialized from JVM to Python (via Py4J), processed, then serialized back. At MAANG scale, a naive UDF can be 10-100× slower than an equivalent built-in Spark function."
+      },
+      {
+        "type": "heading",
+        "content": "UDF vs Pandas UDF vs Built-ins"
+      },
+      {
+        "type": "table",
+        "headers": [
+          "Type",
+          "Serialization",
+          "Throughput",
+          "When to use"
+        ],
+        "rows": [
+          [
+            "<code>spark.udf.register / udf()</code>",
+            "Row-by-row JVM→Python (Pickle)",
+            "~10-100× slower",
+            "Last resort — tiny datasets or no built-in exists"
+          ],
+          [
+            "<code>pandas_udf</code> (Arrow)",
+            "Batch via Apache Arrow (zero-copy)",
+            "~2-5× slower than built-ins",
+            "Complex logic, ML inference, string processing at medium scale"
+          ],
+          [
+            "Built-in SQL functions",
+            "Native JVM — no serialization",
+            "Fastest (1×)",
+            "Always prefer if available"
+          ]
+        ]
+      },
+      {
+        "type": "code",
+        "content": "from pyspark.sql.functions import udf, pandas_udf, col\nfrom pyspark.sql.types import StringType, DoubleType\nimport pandas as pd\n\n# Row-by-row UDF (slowest)\n@udf(returnType=StringType())\ndef classify_salary(salary):\n    if salary > 100000: return 'High'\n    elif salary > 60000: return 'Mid'\n    return 'Low'\n\ndf.withColumn('tier', classify_salary(col('salary')))\n\n# Pandas UDF (vectorized via Arrow — much faster)\n@pandas_udf(DoubleType())\ndef adjusted_salary(salary: pd.Series) -> pd.Series:\n    return salary * 1.15\n\ndf.withColumn('adj_salary', adjusted_salary(col('salary')))\n\n# BEST: use built-in when() instead of UDF\nfrom pyspark.sql.functions import when\ndf.withColumn('tier', when(col('salary')>100000,'High').when(col('salary')>60000,'Mid').otherwise('Low'))"
+      },
+      {
+        "type": "callout",
+        "style": "warning",
+        "icon": "⚠️",
+        "content": "<strong>UDFs are opaque to Catalyst.</strong> Spark cannot optimize inside a UDF — no predicate pushdown, no constant folding, no code generation. Every built-in function call is JVM-native and Catalyst-optimized. Before writing a UDF, search the <code>pyspark.sql.functions</code> documentation — there are 300+ built-in functions including most string, date, math, and array operations you'll need."
+      },
+      {
+        "type": "callout",
+        "style": "info",
+        "icon": "ℹ️",
+        "content": "For ML inference at scale, use <strong>pandas_udf</strong> with Arrow serialization, or better yet <strong>Spark MLlib</strong> transformers or <strong>Spark + MLflow</strong> model serving — these avoid Python serialization entirely for structured prediction."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "UDF (User-Defined Function)",
+        "definition": "Custom Python function registered to run on DataFrame columns. Each row serialized JVM→Python→JVM via Pickle. Black box to Catalyst — no optimization possible. ~10-100× slower than built-ins."
+      },
+      {
+        "term": "Pandas UDF (Vectorized UDF)",
+        "definition": "Processes entire batches of data as Pandas Series via Apache Arrow (near zero-copy). Annotated with <code>@pandas_udf</code>. 5-20× faster than row-by-row UDFs. Still slower than native Spark functions."
+      },
+      {
+        "term": "Apache Arrow",
+        "definition": "In-memory columnar data format. Bridge between JVM (Spark) and Python (Pandas). Eliminates Pickle serialization overhead in Pandas UDFs — data stays in memory-mapped columnar format."
+      },
+      {
+        "term": "when() / otherwise()",
+        "definition": "PySpark's native conditional expression (<code>CASE WHEN</code> in SQL). Fully Catalyst-optimized. Replace most classification UDFs: <code>when(cond1, v1).when(cond2, v2).otherwise(vN)</code>."
+      }
+    ],
+    "quiz": [
+      {
+        "type": "mcq",
+        "question": "A pipeline classifies 1B rows using a Python UDF that checks if a string contains a keyword. A code review suggests replacing it. What's the best native alternative?",
+        "options": [
+          "Register the same logic as a pandas_udf instead",
+          "Use <code>col('text').contains('keyword')</code> or <code>col('text').rlike('pattern')</code> — built-in string functions",
+          "Use <code>df.filter()</code> to pre-filter rows before applying the UDF",
+          "Add more executors to compensate for UDF overhead"
+        ],
+        "answer": 1,
+        "explanation": "PySpark has native built-in string functions: <code>contains()</code>, <code>rlike()</code> (regex), <code>like()</code>, <code>startswith()</code>, <code>instr()</code>. These run in JVM with Catalyst optimization — zero Python serialization. At 1B rows, this can mean hours of difference in run time."
+      },
+      {
+        "type": "spot_the_bug",
+        "question": "A UDF is registered and called but returns all nulls. Find the bug:",
+        "code": "@udf\ndef double_salary(salary):\n    return salary * 2\n\ndf.withColumn('doubled', double_salary(col('salary')))",
+        "options": [
+          "UDFs cannot perform arithmetic — use withColumn instead",
+          "@udf decorator requires an explicit return type: @udf(returnType=DoubleType()) — without it, Spark treats return type as StringType and can't cast, producing nulls",
+          "col('salary') must be cast to Python float before passing to a UDF",
+          "UDFs must be registered with spark.udf.register() before use"
+        ],
+        "answer": 1,
+        "explanation": "Without specifying <code>returnType</code>, PySpark defaults the UDF return type to <code>StringType</code>. When the result (a number like 190000) can't be coerced to a string cleanly in context, Spark may return nulls or the wrong type. Always declare: <code>@udf(returnType=DoubleType())</code>"
+      }
+    ]
   },
   "starter_code": "# No CSV for this mission — create the DataFrame inline\ndata = [(203040, 'rajesh', 10, 20, 30, 40, 50)]\ncols = ['rollno', 'name', 'telugu', 'english', 'maths', 'science', 'social']\n\nmarks_df = spark.createDataFrame(data, cols)\n\n# TODO: add a 'total' column = sum of all five subjects\nresult = marks_df.withColumn('total', ___)",
-
   "expected": [
-    {"rollno": 203040, "name": "rajesh", "telugu": 10, "english": 20, "maths": 30, "science": 40, "social": 50, "total": 150}
+    {
+      "rollno": 203040,
+      "name": "rajesh",
+      "telugu": 10,
+      "english": 20,
+      "maths": 30,
+      "science": 40,
+      "social": 50,
+      "total": 150
+    }
   ],
   "hints": [
     "Use spark.createDataFrame(data, columns) to build the DataFrame.",

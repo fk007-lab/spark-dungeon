@@ -1,0 +1,94 @@
+{
+  "id": "d3_m2",
+  "dungeon_id": "dungeon3",
+  "order": 2,
+  "title": "The Tie-Breaker",
+  "topic": "RANK() vs DENSE_RANK()",
+  "story": "The Tower's second trial reveals a subtle trap. Two gladiators share the same revenue — yet the ranking scrolls disagree. Your task: produce BOTH rankings and expose the gap that RANK() creates.",
+  "problem": "Using the sales DataFrame, add two columns: `rnk` using RANK() and `d_rank` using DENSE_RANK(), both partitioned by `region`, ordered by `revenue` DESC. Filter the result to rows where `region = 'North'`. Select `employee_id`, `region`, `month`, `revenue`, `rnk`, `d_rank`. Order by `rnk` ASC, `employee_id` ASC.",
+  "dataset": "sales.csv",
+  "hint": "Both RANK() and DENSE_RANK() use the same window spec. RANK() skips numbers after ties (1, 1, 3, 4...). DENSE_RANK() never skips (1, 1, 2, 3...). The tie in North is employees 2 and 3 who both had 18000 revenue in 2023-01.",
+  "concept": {
+    "explanation": "<code>RANK()</code> gives tied rows the same rank but <em>skips</em> the next rank(s). If two rows tie at rank 2, the next rank is 4 — rank 3 is skipped. <code>DENSE_RANK()</code> also gives ties the same rank but <em>never skips</em> — the next rank is always +1. Use RANK for sports-style rankings; use DENSE_RANK for academic-style rankings.",
+    "example_code": "from pyspark.sql.window import Window\n\nexample_df = spark.createDataFrame(\n    [(1, 'A', 90), (2, 'A', 90), (3, 'A', 80), (4, 'A', 70)],\n    ['id', 'group', 'score']\n)\n\nw = Window.partitionBy('group').orderBy(F.col('score').desc())\n\nexample_df \\\n  .withColumn('rnk', F.rank().over(w)) \\\n  .withColumn('d_rank', F.dense_rank().over(w)) \\\n  .show()\n# id=1, score=90, rnk=1, d_rank=1\n# id=2, score=90, rnk=1, d_rank=1  (both tied at top)\n# id=3, score=80, rnk=3, d_rank=2  (RANK skips 2; DENSE_RANK doesn't)\n# id=4, score=70, rnk=4, d_rank=3",
+    "output_note": "Notice rank=3 after two 90s — RANK skipped rank 2. DENSE_RANK gives 2 instead. This is the key difference to explain in interviews.",
+    "theory": [
+      {
+        "type": "heading",
+        "content": "The Three Ranking Functions"
+      },
+      {
+        "type": "table",
+        "headers": ["Function", "Handles ties", "Skips ranks?", "Example (ties at 90)"],
+        "rows": [
+          ["<code>row_number()</code>", "Always unique — breaks ties by row order", "N/A", "1, 2, 3, 4 (even if tied)"],
+          ["<code>rank()</code>", "Tied rows get same rank", "Yes — next rank after N ties is rank+N", "1, 1, 3, 4"],
+          ["<code>dense_rank()</code>", "Tied rows get same rank", "No — next rank is always +1", "1, 1, 2, 3"]
+        ]
+      },
+      {
+        "type": "text",
+        "content": "All three require <code>Window.orderBy()</code>. All three use <code>.over(window_spec)</code>. The only difference is how they handle tied ORDER BY values."
+      },
+      {
+        "type": "callout",
+        "variant": "tip",
+        "content": "<strong>Interview quick-fire:</strong> 'What's the difference between RANK and DENSE_RANK?' Answer: RANK skips numbers after ties (Olympic style: 1st, 1st, 3rd). DENSE_RANK never skips (academic: 1st, 1st, 2nd)."
+      },
+      {
+        "type": "code",
+        "content": "# Pattern: add both ranking columns in one pass\nw = Window.partitionBy('region').orderBy(F.col('revenue').desc())\n\ndf.withColumn('rnk', F.rank().over(w)) \\\n  .withColumn('d_rank', F.dense_rank().over(w))"
+      },
+      {
+        "type": "text",
+        "content": "Each <code>.withColumn()</code> call applies the window independently. Both columns are computed in the same stage — no extra shuffle."
+      }
+    ],
+    "rune_cards": [
+      {
+        "term": "rank()",
+        "glyph": "🥇",
+        "definition": "Assigns ranks with GAPS after ties. If 2 rows tie at rank 2, the next rank is 4. Like Olympic medals: two gold medalists means no silver. Usage: F.rank().over(Window.partitionBy('grp').orderBy('val'.desc()))"
+      },
+      {
+        "term": "dense_rank()",
+        "glyph": "🏅",
+        "definition": "Assigns ranks WITHOUT gaps after ties. If 2 rows tie at rank 2, the next rank is 3. Like academic grading: two A+ students, next rank is still A. dense_rank() never produces a gap in the ranking sequence."
+      },
+      {
+        "term": "row_number()",
+        "glyph": "1️⃣",
+        "definition": "Always assigns unique sequential numbers (1, 2, 3, 4...) even for tied values. Tie-breaking is non-deterministic without a secondary orderBy. Use for selecting exactly N rows per group (TOP-N pattern)."
+      },
+      {
+        "term": "Window.partitionBy()",
+        "glyph": "📂",
+        "definition": "Splits data into independent windows. Ranking restarts at 1 for each partition group. Like GROUP BY but keeps all rows. Without partitionBy, the whole DataFrame is one window."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Employees A and B both score 95 (tied). Employee C scores 80. Using RANK(), what rank does C get?",
+        "options": ["2", "3", "4", "1"],
+        "correct": 1,
+        "feedback": "A=rank 1, B=rank 1 (tied). Two rows tied at rank 1 means rank 2 is SKIPPED. C gets rank 3. DENSE_RANK would give C rank 2."
+      },
+      {
+        "question": "You need a top-5 employees query: the 5 employees with highest salaries, with ties broken such that you always get EXACTLY 5 rows. Which function?",
+        "options": ["RANK()", "DENSE_RANK()", "ROW_NUMBER()", "NTILE(5)"],
+        "correct": 2,
+        "feedback": "ROW_NUMBER() always produces unique sequential numbers regardless of ties — so .filter(row_num <= 5) gives exactly 5 rows. RANK/DENSE_RANK may return more than 5 rows if there are ties at the boundary."
+      }
+    ]
+  },
+  "starter_code": "from pyspark.sql.window import Window\n\n# df is pre-loaded from sales.csv (columns: employee_id, region, month, revenue)\n\n# Define window: partitioned by region, ordered by revenue DESC\nwindow_spec = Window.partitionBy(___).orderBy(F.col(___).desc())\n\n# Add rnk (RANK) and d_rank (DENSE_RANK) columns\nresult = (\n    df.withColumn('rnk', F.rank().over(window_spec))\n      .withColumn('d_rank', F.dense_rank().over(window_spec))\n      .filter(F.col('region') == ___)\n      .select(___)\n      .orderBy('rnk', 'employee_id')\n)",
+  "expected": [
+    {"employee_id": 3, "region": "North", "month": "2023-02", "revenue": 21000, "rnk": 1, "d_rank": 1},
+    {"employee_id": 2, "region": "North", "month": "2023-01", "revenue": 18000, "rnk": 2, "d_rank": 2},
+    {"employee_id": 3, "region": "North", "month": "2023-01", "revenue": 18000, "rnk": 2, "d_rank": 2},
+    {"employee_id": 2, "region": "North", "month": "2023-02", "revenue": 17000, "rnk": 4, "d_rank": 3},
+    {"employee_id": 1, "region": "North", "month": "2023-03", "revenue": 14000, "rnk": 5, "d_rank": 4},
+    {"employee_id": 1, "region": "North", "month": "2023-02", "revenue": 13500, "rnk": 6, "d_rank": 5},
+    {"employee_id": 1, "region": "North", "month": "2023-01", "revenue": 12000, "rnk": 7, "d_rank": 6}
+  ]
+}

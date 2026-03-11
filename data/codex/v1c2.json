@@ -1,0 +1,133 @@
+{
+  "id": "v1c2",
+  "volume": "vol1",
+  "volume_title": "Volume I — The Foundations of Spark",
+  "title": "RDDs, DataFrames, and the Dataset API",
+  "estimated_time": "12 min",
+  "sections": [
+    {
+      "title": "The Evolution",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Spark started with <strong>RDDs</strong> (Resilient Distributed Datasets) in 2012 — a low-level distributed collection API. In 2015, Spark 1.3 introduced <strong>DataFrames</strong> with the Catalyst optimizer. In 2016, Spark 2.0 unified them into the <strong>Dataset API</strong>. Python users always use DataFrames (Dataset[Row]), which is the strongly-recommended default."
+        },
+        {
+          "type": "table",
+          "headers": ["API", "Language", "Optimizer", "Type safety", "When to use"],
+          "rows": [
+            ["RDD", "Scala/Java/Python", "None (manual)", "Generic T", "Low-level transformations, custom partitioners, non-tabular data"],
+            ["DataFrame", "Python/SQL/Scala/R", "Catalyst + Tungsten", "Row (runtime)", "Everything tabular — default choice"],
+            ["Dataset[T]", "Scala/Java only", "Catalyst + Tungsten", "T (compile-time)", "Type-safe pipelines in Scala — not available in Python"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Why DataFrames Beat RDDs",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The DataFrame API sends structured metadata (schema, column types) to Spark, enabling the <strong>Catalyst optimizer</strong> to rewrite your query into an optimal physical plan. RDDs are opaque Python closures — Catalyst can't see inside them, so no optimization is possible."
+        },
+        {
+          "type": "table",
+          "headers": ["Feature", "RDD", "DataFrame"],
+          "rows": [
+            ["Query optimization", "None — your code runs as-is", "Catalyst: predicate pushdown, column pruning, join reorder"],
+            ["Serialization", "Java/Kryo serialization (slow)", "Tungsten: off-heap binary format (fast, GC-free)"],
+            ["Column operations", "Custom Python functions", "Native JVM functions — vectorized SIMD on Tungsten data"],
+            ["Memory use", "Java objects (high GC overhead)", "Off-heap binary rows (minimal GC)"],
+            ["Debugging", "Stack traces in Task output", "explain() shows plan; Spark UI shows stages"]
+          ]
+        },
+        {
+          "type": "callout",
+          "style": "info",
+          "icon": "ℹ️",
+          "content": "<strong>Tungsten</strong> is Spark's off-heap binary execution engine. It stores Row data in raw memory (not Java objects), eliminates garbage collection pressure, and uses SIMD instruction-level vectorization for tight loops. DataFrames automatically benefit from Tungsten; RDDs do not."
+        }
+      ]
+    },
+    {
+      "title": "When to Use RDDs in 2024",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Despite DataFrames being superior for tabular data, RDDs are still used for: (1) <strong>custom partitioning</strong> with <code>rdd.partitionBy()</code>, (2) <strong>non-tabular data</strong> (log parsing, graph processing), (3) <strong>complex transformations</strong> that have no DataFrame equivalent (mapPartitions with stateful Python logic)."
+        },
+        {
+          "type": "code",
+          "content": "# Convert DataFrame to RDD and back\nrdd = df.rdd                          # DataFrame -> RDD[Row]\ndf2 = rdd.toDF(schema)               # RDD[Row] -> DataFrame\n\n# mapPartitions: run Python code per partition (e.g., model inference)\ndef score_partition(rows):\n    model = load_model()  # loaded once per partition, not per row\n    for row in rows:\n        yield (row.user_id, model.predict(row.features))\n\nresult_rdd = df.rdd.mapPartitions(score_partition)\nresult_df = result_rdd.toDF(['user_id', 'score'])"
+        },
+        {
+          "type": "callout",
+          "style": "tip",
+          "icon": "💡",
+          "content": "<strong>mapPartitions() pattern</strong>: load expensive resources (ML models, database connections, NLP pipelines) once per partition rather than once per row. This amortizes the initialization cost across hundreds of rows per partition."
+        }
+      ]
+    },
+    {
+      "title": "The Spark SQL Engine",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Spark SQL lets you write standard SQL against DataFrames. The SQL engine uses the same Catalyst optimizer as the DataFrame API — <code>spark.sql('SELECT ...')</code> and <code>df.filter(...)</code> compile to identical physical plans."
+        },
+        {
+          "type": "code",
+          "content": "# SQL and DataFrame API are interchangeable\ndf.createOrReplaceTempView('employees')\n\n# SQL approach\nresult = spark.sql(\"\"\"\n    SELECT department, AVG(salary) as avg_salary\n    FROM employees\n    WHERE active = true\n    GROUP BY department\n    ORDER BY avg_salary DESC\n\"\"\")\n\n# DataFrame API approach — identical physical plan\nresult = df.filter(col('active') == True) \\\n           .groupBy('department') \\\n           .agg(avg('salary').alias('avg_salary')) \\\n           .orderBy(col('avg_salary').desc())"
+        }
+      ]
+    }
+  ],
+  "rune_cards": [
+    {
+      "term": "RDD",
+      "definition": "Resilient Distributed Dataset. Spark's original low-level API. No schema, no Catalyst optimization. Still useful for custom partitioning, non-tabular data, and mapPartitions patterns."
+    },
+    {
+      "term": "DataFrame",
+      "definition": "Spark's structured API (Dataset[Row] in Scala). Has schema, benefits from Catalyst + Tungsten. Default choice for all tabular processing."
+    },
+    {
+      "term": "Catalyst Optimizer",
+      "definition": "Spark's query optimizer. Rewrites logical plans into efficient physical plans: predicate pushdown, column pruning, join reordering, constant folding."
+    },
+    {
+      "term": "Tungsten",
+      "definition": "Spark's off-heap binary execution engine. Stores data as raw bytes (not Java objects) to eliminate GC pressure. Enables SIMD-level vectorization for tight loops."
+    },
+    {
+      "term": "mapPartitions()",
+      "definition": "RDD transformation that runs your function once per partition (not per row). Use for amortizing expensive initialization: model loading, DB connections."
+    }
+  ],
+  "quiz": [
+    {
+      "type": "mcq",
+      "question": "A colleague says 'I use RDDs instead of DataFrames because Python is slower anyway.' What's wrong with this reasoning?",
+      "options": [
+        "Nothing — Python RDDs are faster than DataFrames for Python users",
+        "DataFrames use Tungsten JVM execution and Catalyst optimization — the Python API is just a thin wrapper. RDDs force Spark to serialize between JVM and Python for every row",
+        "RDDs and DataFrames have identical performance in Spark 3+",
+        "Python DataFrames use Pandas under the hood, which is actually slower"
+      ],
+      "answer": 1,
+      "explanation": "DataFrame operations compile to JVM bytecode via Tungsten — Python is only used to define the query, not to process data. RDD lambdas (Python closures) DO force row-by-row JVM→Python serialization (like a UDF). DataFrames avoid Python entirely during execution."
+    },
+    {
+      "type": "mcq",
+      "question": "When would you choose <code>rdd.mapPartitions()</code> over a Pandas UDF?",
+      "options": [
+        "When you need SQL compatibility",
+        "When you need to load a resource once per partition (an ML model, a DB connection pool) and process many rows with it — mapPartitions gives you an iterator over all partition rows",
+        "mapPartitions is always faster than Pandas UDFs",
+        "When you want better type safety"
+      ],
+      "answer": 1,
+      "explanation": "<code>mapPartitions()</code> gives you a Python iterator over all rows in a partition. You can load an ML model, DB connection, or NLP pipeline ONCE and apply it to all rows. Pandas UDFs can do this too (model loaded at import time), but mapPartitions is more explicit about partition-level initialization."
+    }
+  ]
+}
